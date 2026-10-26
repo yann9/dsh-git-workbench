@@ -12,7 +12,7 @@ import path from 'node:path'
 import { copyFile, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { readStatus, readLog, readBranches, readBlame, readFileAt, resolveRepo } from './repo.js'
+import { readStatus, readLog, readBranches, readBlame, readFileAt, readIdentity, hasAuthorIdentity, resolveRepo } from './repo.js'
 import { parseDiff, scopeIds } from './diff.js'
 import { applyToIndex, applyToWorktree, applyWholeFiles, buildPatch, revertSelectedLines } from './patch.js'
 import { git, runGit, splitNul, readGitConsole, clearGitConsole, CONSOLE_LIMIT } from './exec.js'
@@ -37,6 +37,12 @@ const REBASE_EDITOR = fileURLToPath(new URL('./rebase-editor.js', import.meta.ur
 
 /** Message editor for a `reword` todo line; see reword-editor.js. */
 const REWORD_EDITOR = fileURLToPath(new URL('./reword-editor.js', import.meta.url))
+
+/**
+ * git's own answer here is a nine-line essay ("*** Please tell me who you
+ * are."). The client matches on this token instead and offers the fix.
+ */
+const IDENTITY_MISSING = 'git identity is not configured'
 
 export class GitService {
   /**
@@ -109,6 +115,44 @@ export class GitService {
   async checks(dir) {
     const root = await this.resolveDir(dir)
     return readPackageChecks(root)
+  }
+
+  /**
+   * The author a commit would carry, and whether git would accept one at all.
+   * @param {string} [dir]
+   */
+  async identity(dir) {
+    const root = await this.resolveDir(dir)
+    return readIdentity(root)
+  }
+
+  /**
+   * Write `user.name` / `user.email` so commits stop failing.
+   *
+   * Repository-local unless `global` is asked for: a global write changes the
+   * identity of every other repository the user opens, which is too much to do
+   * on the strength of one dialog.
+   *
+   * @param {object} input
+   * @param {string} [input.dir]
+   * @param {string} input.name
+   * @param {string} input.email
+   * @param {boolean} [input.global]
+   */
+  async saveIdentity(input = {}) {
+    const name = String(input.name ?? '').trim()
+    const email = String(input.email ?? '').trim()
+    if (name === '' || /[<>\r\n]/.test(name)) throw new Error('git identity name is invalid')
+    if (!/^[^\s@<>]+@[^\s@<>]+$/.test(email)) throw new Error('git identity email is invalid')
+    return this.withWriteLock(async () => {
+      const root = await this.resolveDir(input.dir)
+      const scope = input.global === true ? '--global' : '--local'
+      for (const [key, value] of [['user.name', name], ['user.email', email]]) {
+        const result = await runGit(root, ['config', scope, key, value], { allowFailure: true })
+        if (result.code !== 0) throw new Error(result.stderr.trim() || `git config ${key} failed`)
+      }
+      return readIdentity(root)
+    })
   }
 
   /**
@@ -1054,6 +1098,7 @@ export class GitService {
     for (const file of files) assertSafePath(file)
     return this.withWriteLock(async () => {
       const root = await this.resolveDir(input.dir)
+      if (!(await hasAuthorIdentity(root))) throw new Error(IDENTITY_MISSING)
       const status = await readStatus(root)
       if (status.operation) throw new Error(`a ${status.operation} is already in progress`)
       if (status.files.some((file) => file.kind === 'conflicted')) throw new Error('resolve the conflicts before committing')
@@ -1117,6 +1162,7 @@ export class GitService {
     if (message === '') throw new Error('commit message is empty')
     return this.withWriteLock(async () => {
       const root = await this.resolveDir(input.dir)
+      if (!(await hasAuthorIdentity(root))) throw new Error(IDENTITY_MISSING)
       const args = ['commit', '-m', message]
       if (input.amend) args.push('--amend')
       if (input.files && input.files.length > 0) {

@@ -107,6 +107,41 @@ export class RepoNotFound extends Error {
 }
 
 /**
+ * Would `git commit` be able to name an author?
+ *
+ * `git var GIT_AUTHOR_IDENT` is the check git itself runs before writing a
+ * commit, so an identity that arrives from the environment is accepted here
+ * too — reimplementing the lookup would disagree with git about the one case
+ * that matters (an auto-detected hostname address git refuses to sign).
+ * @param {string} root
+ */
+export async function hasAuthorIdentity(root) {
+  const result = await runGit(root, ['var', 'GIT_AUTHOR_IDENT'], { allowFailure: true })
+  return result.code === 0
+}
+
+/**
+ * The values the identity dialog should start from. `scope` says where
+ * `user.name` lives, so the dialog can default to the same level.
+ * @param {string} root
+ * @returns {Promise<{ configured: boolean, name: string, email: string, scope: 'local' | 'global' }>}
+ */
+export async function readIdentity(root) {
+  const [configured, name, email, local] = await Promise.all([
+    hasAuthorIdentity(root),
+    runGit(root, ['config', '--get', 'user.name'], { allowFailure: true }),
+    runGit(root, ['config', '--get', 'user.email'], { allowFailure: true }),
+    runGit(root, ['config', '--local', '--get', 'user.name'], { allowFailure: true }),
+  ])
+  return {
+    configured,
+    name: name.stdout.trim(),
+    email: email.stdout.trim(),
+    scope: local.code === 0 ? 'local' : 'global',
+  }
+}
+
+/**
  * `git status --porcelain=v2 --branch -z`, parsed into a flat file list.
  * @param {string} root
  * @returns {Promise<RepoStatus>}

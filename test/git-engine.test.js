@@ -521,3 +521,120 @@ test('a decision rewrites one region and leaves the others byte for byte', () =>
   assert.equal(applyDecision(segments, null, 'ours'), ['head', 'A-mine', 'middle', 'B-mine', 'tail', ''].join('\n'))
   assert.equal(analyzeConflicts(applyDecision(segments, null, 'both')).count, 0)
 })
+
+/**
+ * A repository git cannot attribute: no local identity, and the developer's
+ * global/system config hidden so the answer is the same on every machine.
+ * @param {string} name
+ */
+async function makeAnonymousRepo(name) {
+  const dir = await makeRepo(name)
+  gitSync(dir, ['config', '--local', '--unset-all', 'user.name'])
+  gitSync(dir, ['config', '--local', '--unset-all', 'user.email'])
+  return dir
+}
+
+/**
+ * Point git's identity lookup at nothing for the duration of one test, then
+ * put the developer's environment back.
+ * @param {Record<string, string | undefined>} values
+ */
+function withEnv(values) {
+  /** @type {Record<string, string | undefined>} */
+  const saved = {}
+  for (const [key, value] of Object.entries(values)) {
+    saved[key] = process.env[key]
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+  return () => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+/** Every variable that can supply an author identity, hidden at once. */
+function anonymousEnv(dir) {
+  return {
+    GIT_CONFIG_GLOBAL: path.join(dir, 'missing-global-config'),
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: undefined,
+    GIT_AUTHOR_EMAIL: undefined,
+    GIT_COMMITTER_NAME: undefined,
+    GIT_COMMITTER_EMAIL: undefined,
+    EMAIL: undefined,
+  }
+}
+
+test('a missing author identity is reported before git refuses the commit', async () => {
+  const dir = await makeAnonymousRepo('identity-missing')
+  const restore = withEnv(anonymousEnv(dir))
+  try {
+    await writeFile(path.join(dir, 'a.txt'), 'a\n')
+    gitSync(dir, ['add', 'a.txt'])
+    const service = new GitService({ defaultDir: dir })
+
+    const identity = await service.identity(dir)
+    assert.equal(identity.configured, false)
+
+    await assert.rejects(() => service.commit({ dir, message: 'init' }), /git identity is not configured/)
+    await assert.rejects(
+      () => service.commitPaths({ dir, message: 'init', files: ['a.txt'] }),
+      /git identity is not configured/,
+    )
+  } finally {
+    restore()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('saving the identity writes it locally and lets the commit through', async () => {
+  const dir = await makeAnonymousRepo('identity-save')
+  const restore = withEnv(anonymousEnv(dir))
+  try {
+    await writeFile(path.join(dir, 'a.txt'), 'a\n')
+    gitSync(dir, ['add', 'a.txt'])
+    const service = new GitService({ defaultDir: dir })
+
+    const saved = await service.saveIdentity({ dir, name: 'Ada Lovelace', email: 'ada@example.com' })
+    assert.equal(saved.configured, true)
+    assert.equal(saved.name, 'Ada Lovelace')
+    assert.equal(saved.email, 'ada@example.com')
+    assert.equal(saved.scope, 'local')
+
+    const result = await service.commit({ dir, message: 'init' })
+    assert.equal(result.ok, true)
+    assert.equal(gitSync(dir, ['log', '-1', '--format=%an <%ae>']).trim(), 'Ada Lovelace <ada@example.com>')
+
+    await assert.rejects(
+      () => service.saveIdentity({ dir, name: 'Ada', email: 'not-an-email' }),
+      /email is invalid/,
+    )
+    await assert.rejects(() => service.saveIdentity({ dir, name: '', email: 'ada@example.com' }), /name is invalid/)
+  } finally {
+    restore()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a global identity goes to the global config, not the repository', async () => {
+  const dir = await makeAnonymousRepo('identity-global')
+  const globalConfig = path.join(dir, 'global-gitconfig')
+  const restore = withEnv({ ...anonymousEnv(dir), GIT_CONFIG_GLOBAL: globalConfig })
+  try {
+    const service = new GitService({ defaultDir: dir })
+    const saved = await service.saveIdentity({ dir, name: 'Grace Hopper', email: 'grace@example.com', global: true })
+    assert.equal(saved.configured, true)
+    assert.equal(saved.scope, 'global')
+
+    const written = await readFile(globalConfig, 'utf8')
+    assert.match(written, /grace@example\.com/)
+    const local = await readFile(path.join(dir, '.git', 'config'), 'utf8')
+    assert.doesNotMatch(local, /grace@example\.com/)
+  } finally {
+    restore()
+    await rm(dir, { recursive: true, force: true })
+  }
+})

@@ -1129,13 +1129,16 @@ window.__ModuleLoader__.load({
 }
 .gwb-stash-file { display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 6px; border-radius: 4px; cursor: pointer; font-size: 12px; min-width: 0; }
 .gwb-stash-file:hover { background: var(--gwb-hover); }
-.gwb-stash-file input[type="checkbox"] {
+.gwb-stash-file input[type="checkbox"],
+.gwb-identity-scope input[type="checkbox"] {
   appearance: none; -webkit-appearance: none; width: 13px; height: 13px; margin: 0; flex: none;
   border: 1.5px solid color-mix(in srgb, var(--gwb-dim) 55%, transparent); border-radius: 3px;
   background: var(--gwb-bg); display: inline-grid; place-content: center; cursor: pointer;
 }
-.gwb-stash-file input[type="checkbox"]:checked { background: var(--gwb-accent); border-color: var(--gwb-accent); }
-.gwb-stash-file input[type="checkbox"]:checked::after {
+.gwb-stash-file input[type="checkbox"]:checked,
+.gwb-identity-scope input[type="checkbox"]:checked { background: var(--gwb-accent); border-color: var(--gwb-accent); }
+.gwb-stash-file input[type="checkbox"]:checked::after,
+.gwb-identity-scope input[type="checkbox"]:checked::after {
   content: ''; width: 7px; height: 3.5px; border-left: 1.5px solid #fff; border-bottom: 1.5px solid #fff;
   transform: rotate(-45deg) translateY(-1px);
 }
@@ -1144,6 +1147,8 @@ window.__ModuleLoader__.load({
 .gwb-stash-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .gwb-stash-count { margin-right: auto; font-size: 11px; color: var(--gwb-dim); }
 .gwb-stash-count.error { color: var(--gwb-error-ink); }
+.gwb-identity-scope { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12px; color: var(--gwb-dim); cursor: pointer; }
+.gwb-identity-scope input[type="checkbox"] { cursor: pointer; }
 
 /* ------------------------------------------------------- remotes manager */
 

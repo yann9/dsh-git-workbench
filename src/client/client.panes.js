@@ -10,7 +10,7 @@ window.__ModuleLoader__.load({
     const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
     const { Api, baseName, collectPaths, compareStore, config, countFiles, fileHistoryStore, listModeStore, LOG_KIND, logColumnsStore, logGroupStore, logSortStore, openDiff, openTab, preloadedCommits, runNetOp, statusColor, switchBranch, useCompact, useCompare, useFileHistory, useListMode, useLogColumns, useLogGroup, useLogSort, useRepoChanges, useSessionDirectory, walkFileTree } = kit
-    const { Badge, FilePath, FolderIcon, GitIcons, IconBtn, Menu, MenuRow, copyText, iconMarkup, openContextMenu, openNamePrompt, reportError, showCheckFailure, showConfirm, showRebaseDialog, showRewordDialog, showToast } = require('@yann9/dsh-git-workbench/client.ui.js')
+    const { Badge, FilePath, FolderIcon, GitIcons, IconBtn, Menu, MenuRow, copyText, iconMarkup, openContextMenu, openNamePrompt, reportError, showCheckFailure, showConfirm, showIdentityDialog, showRebaseDialog, showRewordDialog, showToast } = require('@yann9/dsh-git-workbench/client.ui.js')
     const { GitOperationsMenu, sessionBranchName, busyLabel } = require('@yann9/dsh-git-workbench/client.shell.js')
     const { isZh, localizeError, tt } = require('@yann9/dsh-git-workbench/client.i18n.js')
 
@@ -934,8 +934,31 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /** A commit git refused for want of `user.name` / `user.email`. */
+      function missingIdentity(cause) {
+        return /git identity is not configured|Author identity unknown|unable to auto-detect email address/i.test(String(cause?.message ?? cause))
+      }
+
+      /** Collect the identity git asked for, write it, and say whether to retry. */
+      async function ensureIdentity() {
+        const known = await Api.identity(dir).catch(() => null)
+        const identity = await showIdentityDialog({
+          name: known?.name ?? '',
+          email: known?.email ?? '',
+          scope: known?.configured === true ? known.scope : 'local',
+        })
+        if (!identity) return false
+        try {
+          await Api.saveIdentity(dir, identity)
+          return true
+        } catch (cause) {
+          reportError(cause)
+          return false
+        }
+      }
+
       /** @returns {Promise<boolean>} whether a commit was created */
-      async function commitNow() {
+      async function commitNow(retried = false) {
         if (busy) return false
         if (config().readOnly === true) {
           showToast(tt('readonly.blocked'), true)
@@ -956,6 +979,7 @@ window.__ModuleLoader__.load({
           return false
         }
         setBusy(true)
+        let needsIdentity = false
         try {
           // Checks belong inside the busy section: the button must not offer a
           // second commit while tests are still running.
@@ -971,11 +995,19 @@ window.__ModuleLoader__.load({
           await reloadAll()
           return true
         } catch (cause) {
-          reportError(cause)
-          return false
+          if (missingIdentity(cause) && !retried) {
+            needsIdentity = true
+          } else {
+            reportError(cause)
+            return false
+          }
         } finally {
           setBusy(false)
         }
+        // Git refused before touching the index, so asking for the identity and
+        // retrying cannot commit anything twice.
+        if (!needsIdentity || !(await ensureIdentity())) return false
+        return commitNow(true)
       }
 
       /* ---------------------------------------------------------- changelists */
@@ -1082,7 +1114,7 @@ window.__ModuleLoader__.load({
       }
 
       /** Commit the staged files of one changelist; the rest stays staged. */
-      async function commitChangelist(list) {
+      async function commitChangelist(list, retried = false) {
         if (busy) return
         if (config().readOnly === true) {
           showToast(tt('readonly.blocked'), true)
@@ -1110,6 +1142,7 @@ window.__ModuleLoader__.load({
           return
         }
         setBusy(true)
+        let needsIdentity = false
         try {
           if (selectedChecks.length > 0) {
             const outcome = await executeChecks(selectedChecks.map((item) => item.name), false)
@@ -1121,10 +1154,13 @@ window.__ModuleLoader__.load({
           showToast(tt('changelist.committed', { name: list.name }))
           await reloadAll()
         } catch (cause) {
-          reportError(cause)
+          if (missingIdentity(cause) && !retried) needsIdentity = true
+          else reportError(cause)
         } finally {
           setBusy(false)
         }
+        if (!needsIdentity || !(await ensureIdentity())) return
+        await commitChangelist(list, true)
       }
 
       /** Amend pre-fills the current HEAD message, like the IDE. */

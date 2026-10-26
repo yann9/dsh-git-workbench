@@ -244,6 +244,8 @@ window.__ModuleLoader__.load({
       compare: (dir, left, right) => api(dir, '/compare', { params: { left, right, limit: config().maxLog } }),
       stage: (dir, body) => api(dir, '/stage', { method: 'POST', body }),
       commit: (dir, body) => api(dir, '/commit', { method: 'POST', body }),
+      identity: (dir) => api(dir, '/identity', {}),
+      saveIdentity: (dir, body) => api(dir, '/identity', { method: 'POST', body }),
       commitPaths: (dir, files, message) => api(dir, '/commit-paths', { method: 'POST', body: { files, message } }),
       checkout: (dir, body) => api(dir, '/checkout', { method: 'POST', body }),
       draftMessage: (dir, body) => api(dir, '/commit-message', { method: 'POST', body }),

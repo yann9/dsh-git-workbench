@@ -109,6 +109,7 @@ const GET_ROUTES = new Map([
   ['/status', { volatile: true }],
   ['/console', { volatile: true }], // a log of processes, not repository state
   ['/checks', { volatile: true }], // package.json is not tracked by the git revision
+  ['/identity', { volatile: true }], // user.name / user.email live in .git/config or the environment
   ['/overview', { volatile: true }],
   ['/turn', { volatile: false }], // immutable per session event
   ['/workspaces', { volatile: true }], // the registry is not git state at all
@@ -274,6 +275,9 @@ async function handleApi(req, res, route, url, service, options) {
         return
       case '/checks':
         send(await service.checks(dir))
+        return
+      case '/identity':
+        send(await service.identity(dir))
         return
       case '/overview':
         send(await service.overview(dir))
@@ -489,6 +493,9 @@ async function handleApi(req, res, route, url, service, options) {
       return
     case '/commit':
       sendJson(res, 200, await service.commit(/** @type {any} */ (body)))
+      return
+    case '/identity':
+      sendJson(res, 200, await service.saveIdentity(/** @type {any} */ (body)))
       return
     case '/commit-paths':
       sendJson(res, 200, await service.commitPaths(/** @type {any} */ (body)))

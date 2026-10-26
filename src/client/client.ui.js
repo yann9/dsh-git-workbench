@@ -632,6 +632,126 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Git refuses a commit it cannot attribute. The dialog collects the two
+     * values it asks for and hands them back; the caller writes them and
+     * retries, so this stays a form and never talks to the API itself.
+     * @param {{ name?: string, email?: string, scope?: 'local' | 'global' }} options
+     * @returns {Promise<{ name: string, email: string, global: boolean } | null>}
+     */
+    function showIdentityDialog(options = {}) {
+      return new Promise((resolve) => {
+        const id = `gwb-identity-${Date.now()}`
+        const backdrop = document.createElement('div')
+        backdrop.className = 'gwb-confirm-backdrop'
+        const dialog = document.createElement('div')
+        dialog.className = 'gwb-confirm gwb-stash-dialog gwb-identity'
+        dialog.setAttribute('role', 'dialog')
+        dialog.setAttribute('aria-modal', 'true')
+        const title = document.createElement('div')
+        title.className = 'gwb-stash-title'
+        title.id = id
+        title.textContent = tt('identity.title')
+        dialog.setAttribute('aria-labelledby', id)
+        const hint = document.createElement('div')
+        hint.className = 'gwb-stash-hint'
+        hint.textContent = tt('identity.hint')
+        dialog.append(title, hint)
+
+        const field = (labelKey, placeholder, value, type = 'text') => {
+          const label = document.createElement('label')
+          label.className = 'gwb-stash-label'
+          label.textContent = tt(labelKey)
+          const input = document.createElement('input')
+          input.className = 'gwb-stash-input'
+          input.type = type
+          input.spellcheck = false
+          input.autocomplete = 'off'
+          input.value = value
+          input.placeholder = placeholder
+          input.id = `${id}-${labelKey.replace('.', '-')}`
+          label.setAttribute('for', input.id)
+          dialog.append(label, input)
+          return input
+        }
+        const nameInput = field('identity.name', tt('identity.namePlaceholder'), String(options.name ?? ''))
+        const emailInput = field('identity.email', tt('identity.emailPlaceholder'), String(options.email ?? ''), 'email')
+
+        // Repository-local by default: a global write changes who the user is
+        // in every other repository, which one dialog should not decide.
+        const onlyHere = document.createElement('label')
+        onlyHere.className = 'gwb-identity-scope'
+        const scopeBox = document.createElement('input')
+        scopeBox.type = 'checkbox'
+        scopeBox.checked = options.scope !== 'global'
+        const scopeText = document.createElement('span')
+        scopeText.textContent = tt('identity.onlyHere')
+        onlyHere.append(scopeBox, scopeText)
+
+        const row = document.createElement('div')
+        row.className = 'gwb-stash-row'
+        const error = document.createElement('span')
+        error.className = 'gwb-stash-count'
+        const cancel = document.createElement('button')
+        cancel.className = 'gwb-btn ghost'
+        cancel.textContent = tt('confirm.cancel')
+        const ok = document.createElement('button')
+        ok.className = 'gwb-btn primary'
+        ok.textContent = tt('identity.ok')
+        row.append(error, cancel, ok)
+        dialog.append(onlyHere, row)
+        backdrop.appendChild(dialog)
+        document.body.appendChild(backdrop)
+
+        const valid = () => /^[^\s@]+@[^\s@]+$/.test(emailInput.value.trim()) && nameInput.value.trim() !== ''
+        const sync = () => {
+          ok.disabled = !valid()
+        }
+        const settle = (value) => {
+          backdrop.remove()
+          document.removeEventListener('keydown', onKey, true)
+          resolve(value)
+        }
+        const submit = () => {
+          if (!valid()) {
+            error.textContent = tt('identity.invalid')
+            error.classList.add('error')
+            ;(nameInput.value.trim() === '' ? nameInput : emailInput).focus()
+            return
+          }
+          settle({
+            name: nameInput.value.trim(),
+            email: emailInput.value.trim(),
+            global: !scopeBox.checked,
+          })
+        }
+        const onKey = (event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation()
+            settle(null)
+          }
+        }
+
+        nameInput.addEventListener('input', sync)
+        emailInput.addEventListener('input', sync)
+        for (const input of [nameInput, emailInput]) {
+          input.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            submit()
+          })
+        }
+        backdrop.addEventListener('mousedown', (event) => {
+          if (event.target === backdrop) settle(null)
+        })
+        cancel.addEventListener('click', () => settle(null))
+        ok.addEventListener('click', submit)
+        document.addEventListener('keydown', onKey, true)
+        sync()
+        window.setTimeout(() => nameInput.focus(), 30)
+      })
+    }
+
+    /**
      * Remote manager (the IDE's "Manage Remotes"). Every configured remote
      * with its URL, plus a form to add one and buttons to edit or drop it.
      * The dialog owns no git state: it asks the host and re-renders whatever
@@ -1517,6 +1637,6 @@ window.__ModuleLoader__.load({
       return h('button', { className: 'gwb-chipbtn', title, 'aria-label': title, onClick }, h(GitIcon), h('span', null, children))
     }
 
-    return { showToast, reportError, showConfirm, showCheckFailure, showStashDialog, showRemotesDialog, showRewordDialog, showRebaseDialog, copyText, openContextMenu, closeContextMenu, openNamePrompt, FolderIcon, GitIcon, GitIcons, iconMarkup, Chip, Badge, IconBtn, Menu, MenuRow, FilePath, Safe }
+    return { showToast, reportError, showConfirm, showCheckFailure, showStashDialog, showIdentityDialog, showRemotesDialog, showRewordDialog, showRebaseDialog, copyText, openContextMenu, closeContextMenu, openNamePrompt, FolderIcon, GitIcon, GitIcons, iconMarkup, Chip, Badge, IconBtn, Menu, MenuRow, FilePath, Safe }
   },
 })
