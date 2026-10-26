@@ -1,6 +1,6 @@
 {
   "name": "@yann9/dsh-git-workbench",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "JetBrains-style Git workbench for DeepSeek Harness: local changes, hunk/line staging, side-by-side diff, commit window, commit graph, annotate.",
   "type": "module",
   "main": "src/index.js",

@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.2 — 2026-10-26
+
+Documentation only; the plugin itself is unchanged.
+
+### Added
+
+- An English set of the screenshots (`docs/assets/*-en-*.png`): the commit pane,
+  the diff view, the history tab, the conflict view and the stash dialog, in
+  light and dark. The English README embeds them, the Chinese one keeps the
+  Chinese set.
+
 ## 0.1.1 — 2026-10-26
 
 Release infrastructure only; the plugin itself is unchanged.
