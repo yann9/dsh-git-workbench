@@ -123,6 +123,8 @@ npm pack --dry-run        # 看打包内容：src / locale / cordis.patch.yml / 
 npm publish --access public
 ```
 
+手动发布**不要**加 `--provenance`：provenance 只能由 CI 生成，本机跑会报 `EUSAGE Automatic provenance generation not supported for provider: null`。要带 provenance 就走上面的 tag 流水线。
+
 `publishConfig.registry` 已经钉死官方 `registry.npmjs.org`：本机默认源可能被换成镜像（npmmirror 之流只读不写），没有这一行 `npm publish` 会打到镜像上失败。登录也要指官方源，镜像的 token 不通用：
 
 ```bash
