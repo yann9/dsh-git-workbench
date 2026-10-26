@@ -486,6 +486,45 @@ test('localizeError maps the server contracts back to the UI language', async ()
   assert.match(en.localizeError(new Error('refusing to delete the default branch main')), /cannot be deleted/)
 })
 
+test("git's own refusals answer in the UI language", async () => {
+  const zh = (await loadClient('zh-CN')).i18n
+  const answers = {
+    // a branch that was never pushed, asked to pull
+    'There is no tracking information for the current branch.\nPlease specify which branch you want to merge with.': /上游/,
+    "fatal: Unable to create '/repo/.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository, or the lock file may be stale": /锁/,
+    "fatal: 'C:/somewhere/not-a-repo.git' does not appear to be a git repository": /远程仓库/,
+    "fatal: unable to access 'https://x.invalid/y.git/': Could not resolve host: x.invalid": /远程仓库/,
+    "fatal: could not read Username for 'https://github.com': terminal prompts disabled": /登录/,
+    'Committer identity unknown\n\n*** Please tell me who you are.': /作者信息/,
+    'error: cannot pull with rebase: You have unstaged changes.': /未提交/,
+    // the states a work tree gets into without anyone meaning to
+    'You are not currently on a branch.\nPlease specify which branch you want to merge with.': /分离 HEAD/,
+    'error: The destination you provided is not a full refname (i.e., starting with "refs/").': /分离 HEAD/,
+    "Your configuration specifies to merge with the ref 'refs/heads/feature'\nfrom the remote, but no such ref was fetched.": /上游/,
+    "error: cannot delete branch 'wt' used by worktree at 'C:/repo/worktree'": /工作区/,
+    "fatal: 'bad name' is not a valid tag name.": /标签名/,
+    "fatal: 'b.lock' is not a valid branch name\nhint: See 'git help check-ref-format'": /分支名/,
+    'fatal: invalid reference: gone': /找不到本地分支/,
+    'merge: nosuch - not something we can merge': /找不到本地分支/,
+    "fatal: Failed to resolve 'HEAD' as a valid ref.": /第一次提交/,
+    'You do not have the initial commit yet': /第一次提交/,
+    // what the host itself answers
+    'nothing is in progress': /没有进行中/,
+    'finish the merge with a commit': /提交/,
+    'resolve the conflicts first': /冲突/,
+    'invalid branch name: two words': /分支名/,
+    'invalid tag name: 版本 .lock': /标签名/,
+    'the branch is already called main': /已经叫/,
+    'the rebase plan must include every commit exactly once': /重新发起/,
+    'the first kept commit cannot be squashed': /第一条/,
+    'a branch called main already exists': /已存在/,
+  }
+  for (const [raw, expected] of Object.entries(answers)) {
+    const text = zh.localizeError(new Error(raw))
+    assert.match(text, expected, `${raw.split('\n')[0]} must not stay in git's English: ${text}`)
+  }
+})
+
 test('walkFileTree renders flat or tree and honours folder collapse state', async () => {
   const { core } = await loadClient()
   const files = [{ path: 'a/1.txt' }, { path: 'a/2.txt' }, { path: 'b.txt' }]
@@ -815,7 +854,7 @@ test('every branch-menu operation reaches a real Api method', async () => {
 })
 
 test('a git failure reaches the toast without its hint block', async () => {
-  const { i18n } = await loadClient()
+  const { i18n } = await loadClient('zh-CN')
   const rejected = {
     message: [
       'To ../dsh-git-workbench-fixture-origin.git',
@@ -825,9 +864,12 @@ test('a git failure reaches the toast without its hint block', async () => {
       "hint: 'git pull' before pushing again.",
     ].join('\n'),
   }
-  const text = i18n.localizeError(rejected)
-  assert.equal(text.includes('hint:'), false)
-  assert.ok(text.includes('! [rejected]'), 'the line that names the failure must survive')
+  // A rejected push has a sentence of its own, so the git narrative — the
+  // advice lines and the diff-stat noise — never reaches the toast.
+  assert.match(i18n.localizeError(rejected), /推送被拒绝/)
+  // A failure no rule claims keeps the line that names it, minus the advice.
+  const unmapped = { message: ['error: a failure nobody has mapped yet', 'hint: try it with --foo'].join('\n') }
+  assert.equal(i18n.localizeError(unmapped), 'a failure nobody has mapped yet')
   // A wall of text would cover the composer: six lines, then an ellipsis.
   const long = { message: Array.from({ length: 12 }, (_, index) => `line ${index}`).join('\n') }
   const capped = i18n.localizeError(long).split('\n')
