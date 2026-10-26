@@ -111,7 +111,13 @@ jobs:
             echo "::notice::${version} is already on npm, skipping the publish"
             exit 0
           fi
-          npm publish --provenance --access public
+          # npm publishes a prerelease under `latest` unless it is told not to,
+          # which would push the channel back to an rc build.
+          if [[ "${version}" == *-* ]]; then
+            npm publish --provenance --access public --tag next
+          else
+            npm publish --provenance --access public
+          fi
 
       # The published tarball is what DSH resolves: the bundle manifest and every
       # client chunk have to be inside it.
