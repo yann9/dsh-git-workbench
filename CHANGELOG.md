@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.1 — 2026-10-26
+
+Release infrastructure only; the plugin itself is unchanged.
+
+### Fixed
+
+- The Windows CI jobs are green again. The runners hand out `$TMP` in its 8.3
+  form (`C:\Users\RUNNER~1\…`) while git reports the long name for the same
+  folder, and Node cannot expand the short name — so the two assertions that
+  mixed a fixture path with a host-resolved root now compare file identity.
+
+### Changed
+
+- The release pipeline is safe to re-run: a tag whose version already landed on
+  npm skips the publish instead of failing, and a prerelease tag is published
+  under the `next` dist-tag instead of taking over `latest`.
+- `docs/development.md` records that a manual publish cannot carry
+  `--provenance` — only a CI run can mint it.
+
 ## 0.1.0 — 2026-10-26
 
 First public release. The plugin has been used against real repositories throughout
