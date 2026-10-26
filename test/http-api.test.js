@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, writeFile, rm, readFile } from 'node:fs/promises'
-import { realpathSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -33,14 +33,27 @@ function gitMaybe(cwd, args) {
 }
 
 /**
- * Windows hands out `$TMP` in its 8.3 form (`C:\Users\RUNNER~1\…`) on the CI
- * runners, while git reports the long form for the same folder — so every
- * fixture root is canonicalised before it is compared with anything the
- * service resolved.
+ * The fixture root is created with a real path, because macOS hands out
+ * `/tmp/…` while git reports `/private/tmp/…`.
  * @param {string} prefix
  */
 async function makeTempDir(prefix) {
   return realpathSync(await mkdtemp(path.join(tmpdir(), prefix)))
+}
+
+/**
+ * Windows spells one folder two ways: the 8.3 short name the temp directory
+ * comes with, and the long name git reports. Node cannot expand the short
+ * name — it namespaces the path before the OS ever sees it — so the file
+ * identity is what proves that two paths are one folder.
+ * @param {string} a
+ * @param {string} b
+ */
+function sameFolder(a, b) {
+  const left = statSync(a)
+  const right = statSync(b)
+  if (!left.ino || !right.ino) return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()
+  return left.dev === right.dev && left.ino === right.ino
 }
 
 async function makeRepo() {
@@ -1233,7 +1246,7 @@ test('init turns a plain folder into a repository without touching its files', a
     const payload = JSON.parse(createdText)
     assert.equal(payload.ok, true)
     assert.equal(payload.already, undefined)
-    assert.equal(path.resolve(payload.root).toLowerCase(), path.resolve(dir).toLowerCase())
+    assert.ok(sameFolder(payload.root, dir), `${payload.root} is not ${dir}`)
 
     const status = await (await fetch(`${base}/api/status`)).json()
     assert.deepEqual(status.files.map((file) => [file.path, file.kind]), [['note.txt', 'untracked']])
@@ -1243,14 +1256,14 @@ test('init turns a plain folder into a repository without touching its files', a
     const again = await (await post('/init', { dir })).json()
     assert.equal(again.ok, true)
     assert.equal(again.already, true)
-    assert.equal(path.resolve(again.root).toLowerCase(), path.resolve(dir).toLowerCase())
+    assert.ok(sameFolder(again.root, dir), `${again.root} is not ${dir}`)
 
     // A folder already owned by a parent repo must not become a nested repo.
     const nested = path.join(dir, 'sub')
     await mkdir(nested)
     const child = await (await post('/init', { dir: nested })).json()
     assert.equal(child.already, true)
-    assert.equal(path.resolve(child.root).toLowerCase(), path.resolve(dir).toLowerCase())
+    assert.ok(sameFolder(child.root, dir), `${child.root} is not ${dir}`)
   } finally {
     await new Promise((resolve) => server.close(resolve))
     await rm(dir, { recursive: true, force: true })
@@ -1743,12 +1756,17 @@ test('console records argv, exit code and output per repository, and polling add
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
+  // The console is scoped by the root the host resolved, so the check has to
+  // use that spelling as well: the fixture path may be the 8.3 short name
+  // while every entry the host kept carries the long one.
+  let root = ''
   const inRepo = (entry) => {
-    const relative = path.relative(dir, entry.cwd)
+    const relative = path.relative(root, entry.cwd)
     return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
   }
   try {
-    await get(`/status?dir=${encodeURIComponent(dir)}`)
+    const opened = await (await get(`/status?dir=${encodeURIComponent(dir)}`)).json()
+    root = opened.repo.root
     const first = await (await get(`/console?dir=${encodeURIComponent(dir)}`)).json()
     assert.equal(first.limit, 200)
     const status = first.entries.find((entry) => entry.args[0] === 'status')
@@ -1774,12 +1792,13 @@ test('console records argv, exit code and output per repository, and polling add
     const polled = await (await get(`/console?dir=${encodeURIComponent(dir)}`)).json()
     assert.equal(polled.entries.length, afterFailure.entries.length)
 
-    await get(`/status?dir=${encodeURIComponent(other)}`)
+    const otherStatus = await (await get(`/status?dir=${encodeURIComponent(other)}`)).json()
+    const otherRoot = otherStatus.repo.root
     const scoped = await (await get(`/console?dir=${encodeURIComponent(dir)}`)).json()
     assert.equal(scoped.entries.length, afterFailure.entries.length, 'other repo status must not appear here')
     const otherView = await (await get(`/console?dir=${encodeURIComponent(other)}`)).json()
     assert.ok(otherView.entries.length > 0)
-    assert.ok(otherView.entries.every((entry) => path.resolve(entry.cwd).toLowerCase().startsWith(path.resolve(other).toLowerCase())))
+    assert.ok(otherView.entries.every((entry) => path.resolve(entry.cwd).toLowerCase().startsWith(path.resolve(otherRoot).toLowerCase())))
 
     // Clearing is per repository: this repo goes empty, the other keeps its log.
     const cleared = await post('/console/clear', { dir })
