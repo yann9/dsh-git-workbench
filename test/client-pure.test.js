@@ -42,6 +42,7 @@ async function loadRegistry(language = 'zh-CN') {
   const storage = new Map()
   const sandbox = {
     console,
+    URL,
     setTimeout,
     clearTimeout,
     setInterval,
@@ -518,11 +519,41 @@ test("git's own refusals answer in the UI language", async () => {
     'the rebase plan must include every commit exactly once': /重新发起/,
     'the first kept commit cannot be squashed': /第一条/,
     'a branch called main already exists': /已存在/,
+    // the per-turn snapshot is the host's own record, and it can be gone
+    'this turn is no longer available: summaries live only while the session lives in this host process': /快照/,
+    'this harness build does not expose workspace changes (workspaceChanges service missing)': /本轮改动/,
+    'missing session id': /坐标/,
+    'missing or invalid event sequence': /坐标/,
   }
   for (const [raw, expected] of Object.entries(answers)) {
     const text = zh.localizeError(new Error(raw))
     assert.match(text, expected, `${raw.split('\n')[0]} must not stay in git's English: ${text}`)
   }
+})
+
+test('a delivery card sends Git to the working tree; a changes card to its turn', async () => {
+  const { shell, core } = await loadClient()
+  const opened = []
+  core.ctx = {
+    get: (id) => (id === 'sidebarRight' ? { openTab: (kind) => opened.push(kind) } : undefined),
+    slots: { inject: () => () => {}, register: () => () => {} },
+  }
+  const click = (actionUrl) => shell.CardAction({ actionUrl }).props.onClick()
+
+  // The host only answers a turn snapshot for a `workspace/changes` event, and
+  // a delivery card carries the coordinates of its `deliverables/presented`
+  // one — asking with that seq could only ever end in an error page.
+  click('api/present.open?sessionId=s-1&seq=42&index=0')
+  assert.deepEqual(opened, ['dsh-git-commit'])
+
+  click('api/changes.open?sessionId=s-1&seq=42&index=1')
+  // Field by field: the store's object was built inside the chunk's realm, so
+  // it does not share this test's Object.prototype.
+  const target = core.diffTargetStore.target
+  assert.deepEqual(
+    [target.source, target.session, target.seq, target.index],
+    ['turn', 's-1', '42', '1'],
+  )
 })
 
 test('walkFileTree renders flat or tree and honours folder collapse state', async () => {

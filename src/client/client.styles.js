@@ -351,6 +351,7 @@ window.__ModuleLoader__.load({
 }
 .gwb-fchip-x:hover { opacity: 1; background: var(--gwb-hover); }
 .gwb-error { margin: 10px; padding: 8px 10px; border-radius: 4px; background: color-mix(in srgb, var(--gwb-del) 10%, transparent); color: var(--gwb-del-ink); white-space: pre-wrap; }
+.gwb-error .gwb-btn { display: block; margin-top: 8px; white-space: normal; }
 
 /* ------------------------------------------------------------ commit bar */
 

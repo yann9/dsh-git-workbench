@@ -9,7 +9,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
-    const { Api, closeDiffView, config, diffTargetStore, openDiff, preloadedCommits, statusColor, useRepoChanges, useSessionDirectory } = kit
+    const { Api, COMMIT_KIND, closeDiffView, config, diffTargetStore, openDiff, openTab, preloadedCommits, statusColor, useRepoChanges, useSessionDirectory } = kit
     const { Badge, GitIcons, IconBtn, Menu, MenuRow, Safe, copyText, iconMarkup, openContextMenu, reportError, showConfirm, showToast } = require('@yann9/dsh-git-workbench/client.ui.js')
     const { tt, localizeError } = require('@yann9/dsh-git-workbench/client.i18n.js')
 
@@ -1765,7 +1765,23 @@ window.__ModuleLoader__.load({
             ref: bodyRef,
             onContextMenu: onRowContext,
           },
-          error ? h('div', { className: 'gwb-error' }, String(error.message ?? error)) : bodyChildren,
+          error
+            ? h(
+                'div',
+                { className: 'gwb-error' },
+                localizeError(error),
+                // The turn snapshot is the one source a retry cannot fix: the
+                // host drops it when the session closes. The working tree is
+                // the same file's diff, and it is still there.
+                source === 'turn'
+                  ? h(
+                      'button',
+                      { className: 'gwb-btn sm', onClick: () => openTab(kit.ctx, COMMIT_KIND) },
+                      tt('diff.openWorking'),
+                    )
+                  : null,
+              )
+            : bodyChildren,
         ),
       )
     }

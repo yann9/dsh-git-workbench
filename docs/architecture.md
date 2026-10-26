@@ -90,9 +90,13 @@ DSH Web 一共四个位置会呈现代码改动，它们是不同的 surface，�
 | # | 位置 | 数据来源 | 我们的接入 |
 |---|---|---|---|
 | 1 | 聊天里的 `edit` / `write` 工具卡片（每次改动的内联 diff） | 工具调用参数 | **未替换**，见下 |
-| 2 | 聊天里一轮结束的产出口卡片 | `present` 工具 + 文件 | `deliverables.file.actions` → `Git` 按钮，打开该轮快照 |
+| 2 | 聊天里一轮结束的产出口卡片 | `present` 工具 + 文件 | `deliverables.file.actions` → `Git` 按钮，打开「提交」页签（见下） |
 | 3 | 右侧栏「改动」评审页（逐文件列表） | `workspace/changes` | `deliverables.review.file.actions` → 同上的 `Git` 按钮 |
 | 4 | 右侧栏「文件」页 | 工作区目录 | `sidebar.right.tab.files.actions` → 打开「提交」页签 |
+
+**第 2、3 处的 `seq` 不是同一套编号**，这是「有的能看有的看不了」的根源。宿主把会话事件按追加顺序统一编号，`ctx.workspaceChanges.summary(sessionId, seq)` 只认 `workspace/changes` 那一条事件；而交付卡片传给动作位的 `seq` 属于 `deliverables/presented` 事件，用它去要快照必然为空。另外快照只跟着**当前进程里打开的会话**存在，会话被释放或宿主重启后同样取不到。两种情况下 `/turn` 都会抛出说明，diff 页把它翻译成人话并给出「在提交页查看工作区改动」的出口，而不是一句英文错误。
+
+聊天里那张「已编辑 N 个文件」的改动卡片**没有第三方动作位**——宿主只给了它自己的「在侧边栏查看本轮改动」按钮，点进去才是第 3 行的评审页，`Git` 按钮在那里。
 
 另有会话头部的分支芯片（`conversation.session.header.actions`）和新会话空状态的分支选择器（`conversation.hero.options`），它们是 Git 操作入口，不是 diff surface。
 

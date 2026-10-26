@@ -95,7 +95,7 @@ DSH 的「每轮改动」卡片已经渲染了文件名与增删行数，缺的�
 | 替换卡片 | 要复刻卡片的全部布局与交互，宿主一改版就散架 | 不选 |
 | 在卡片的动作位加按钮 | 依赖官方 slot 契约，宿主改版最多让按钮消失 | 采用 |
 
-用的是 `deliverables.file.actions` 与 `deliverables.review.file.actions` 两个 list 型、session 作用域的动作位。`actionUrl` 的查询串里带着 `sessionId` / `seq` / `index`，正是 `ctx.workspaceChanges` 的坐标，所以不需要跨文档传参。
+用的是 `deliverables.file.actions` 与 `deliverables.review.file.actions` 两个 list 型、session 作用域的动作位。`actionUrl` 的查询串里带着 `sessionId` / `seq` / `index`，所以不需要跨文档传参——但两个动作位的 `seq` 不是同一回事：评审页给的是 `workspace/changes` 事件的序号，正是 `ctx.workspaceChanges` 认的那个；交付卡片给的是 `deliverables/presented` 事件的序号，拿它去要快照永远为空，所以那张卡片上的按钮直接打开「提交」页签看工作区。
 
 **为什么快照值得单独做一个视图**：`workspace/changes` 记录的是"这一轮开始 → 结束"，与工作区当前状态无关。用户提交之后工作区 diff 就空了，但"Agent 这一轮到底改了什么"仍然有意义。这也是它必须只读的原因——快照内容无法被暂存或提交。
 
