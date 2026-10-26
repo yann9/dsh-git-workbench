@@ -9,7 +9,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
-    const { service, statusColor } = kit
+    const { Api, service, statusColor } = kit
     const { localizeError, tt } = require('@yann9/dsh-git-workbench/client.i18n.js')
 
     /* ------------------------------------------------- context menu (right click) */
@@ -749,6 +749,57 @@ window.__ModuleLoader__.load({
         sync()
         window.setTimeout(() => nameInput.focus(), 30)
       })
+    }
+
+    /** Does this failure say "git does not know who you are"? */
+    function missingIdentity(cause) {
+      return /git identity is not configured|(?:Author|Committer) identity unknown|unable to auto-detect email address/i.test(
+        String(cause?.message ?? cause),
+      )
+    }
+
+    /**
+     * Collect the identity git asked for and write it. Says whether the caller
+     * should retry, and answers a refused write itself — the dialog is already
+     * closed by then, so a silent failure would look like a dead button.
+     * @param {string} dir
+     * @returns {Promise<boolean>}
+     */
+    async function askIdentity(dir) {
+      const known = await Api.identity(dir).catch(() => null)
+      const identity = await showIdentityDialog({
+        name: known?.name ?? '',
+        email: known?.email ?? '',
+        scope: known?.configured === true ? known.scope : 'local',
+      })
+      if (!identity) return false
+      try {
+        await Api.saveIdentity(dir, identity)
+        return true
+      } catch (cause) {
+        reportError(cause)
+        return false
+      }
+    }
+
+    /**
+     * Run a write operation, and when git refuses for lack of an author,
+     * ask for one and run it again. Every operation that creates a commit
+     * goes through here — commit, merge, rebase, reword, cherry-pick, revert —
+     * so the identity prompt reads the same wherever it appears.
+     * Cancelling re-throws the original refusal, which `localizeError` turns
+     * into the localized "identity missing" toast.
+     * @param {string} dir
+     * @param {() => Promise<any>} task
+     */
+    async function withIdentity(dir, task) {
+      try {
+        return await task()
+      } catch (cause) {
+        if (!missingIdentity(cause)) throw cause
+        if (!(await askIdentity(dir))) throw cause
+        return task()
+      }
     }
 
     /**
@@ -1637,6 +1688,6 @@ window.__ModuleLoader__.load({
       return h('button', { className: 'gwb-chipbtn', title, 'aria-label': title, onClick }, h(GitIcon), h('span', null, children))
     }
 
-    return { showToast, reportError, showConfirm, showCheckFailure, showStashDialog, showIdentityDialog, showRemotesDialog, showRewordDialog, showRebaseDialog, copyText, openContextMenu, closeContextMenu, openNamePrompt, FolderIcon, GitIcon, GitIcons, iconMarkup, Chip, Badge, IconBtn, Menu, MenuRow, FilePath, Safe }
+    return { showToast, reportError, showConfirm, showCheckFailure, showStashDialog, missingIdentity, askIdentity, withIdentity, showRemotesDialog, showRewordDialog, showRebaseDialog, copyText, openContextMenu, closeContextMenu, openNamePrompt, FolderIcon, GitIcon, GitIcons, iconMarkup, Chip, Badge, IconBtn, Menu, MenuRow, FilePath, Safe }
   },
 })

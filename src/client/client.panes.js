@@ -10,7 +10,7 @@ window.__ModuleLoader__.load({
     const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
     const { Api, baseName, collectPaths, compareStore, config, countFiles, fileHistoryStore, listModeStore, LOG_KIND, logColumnsStore, logGroupStore, logSortStore, openDiff, openTab, preloadedCommits, runNetOp, statusColor, switchBranch, useCompact, useCompare, useFileHistory, useListMode, useLogColumns, useLogGroup, useLogSort, useRepoChanges, useSessionDirectory, walkFileTree } = kit
-    const { Badge, FilePath, FolderIcon, GitIcons, IconBtn, Menu, MenuRow, copyText, iconMarkup, openContextMenu, openNamePrompt, reportError, showCheckFailure, showConfirm, showIdentityDialog, showRebaseDialog, showRewordDialog, showToast } = require('@yann9/dsh-git-workbench/client.ui.js')
+    const { Badge, FilePath, FolderIcon, GitIcons, IconBtn, Menu, MenuRow, askIdentity, copyText, iconMarkup, missingIdentity, openContextMenu, openNamePrompt, reportError, showCheckFailure, showConfirm, showRebaseDialog, showRewordDialog, showToast, withIdentity } = require('@yann9/dsh-git-workbench/client.ui.js')
     const { GitOperationsMenu, sessionBranchName, busyLabel } = require('@yann9/dsh-git-workbench/client.shell.js')
     const { isZh, localizeError, tt } = require('@yann9/dsh-git-workbench/client.i18n.js')
 
@@ -934,29 +934,6 @@ window.__ModuleLoader__.load({
         }
       }
 
-      /** A commit git refused for want of `user.name` / `user.email`. */
-      function missingIdentity(cause) {
-        return /git identity is not configured|Author identity unknown|unable to auto-detect email address/i.test(String(cause?.message ?? cause))
-      }
-
-      /** Collect the identity git asked for, write it, and say whether to retry. */
-      async function ensureIdentity() {
-        const known = await Api.identity(dir).catch(() => null)
-        const identity = await showIdentityDialog({
-          name: known?.name ?? '',
-          email: known?.email ?? '',
-          scope: known?.configured === true ? known.scope : 'local',
-        })
-        if (!identity) return false
-        try {
-          await Api.saveIdentity(dir, identity)
-          return true
-        } catch (cause) {
-          reportError(cause)
-          return false
-        }
-      }
-
       /** @returns {Promise<boolean>} whether a commit was created */
       async function commitNow(retried = false) {
         if (busy) return false
@@ -1006,7 +983,7 @@ window.__ModuleLoader__.load({
         }
         // Git refused before touching the index, so asking for the identity and
         // retrying cannot commit anything twice.
-        if (!needsIdentity || !(await ensureIdentity())) return false
+        if (!needsIdentity || !(await askIdentity(dir))) return false
         return commitNow(true)
       }
 
@@ -1159,7 +1136,7 @@ window.__ModuleLoader__.load({
         } finally {
           setBusy(false)
         }
-        if (!needsIdentity || !(await ensureIdentity())) return
+        if (!needsIdentity || !(await askIdentity(dir))) return
         await commitChangelist(list, true)
       }
 
@@ -1277,7 +1254,10 @@ window.__ModuleLoader__.load({
         }
         setBusy(true)
         try {
-          const result = await Api.continueOperation(dir)
+          // A paused sequencer still needs a committer to conclude, and the
+          // pre-flight never runs here — refusing it would strand the
+          // operation, because committing is blocked while a rebase is on.
+          const result = await withIdentity(dir, () => Api.continueOperation(dir))
           if (result?.paused === true) {
             showToast(pauseMessage(result), (result.conflicts ?? 0) > 0)
           } else {
@@ -2467,7 +2447,7 @@ window.__ModuleLoader__.load({
           }
           opRunning.current = true
           try {
-            await run()
+            await withIdentity(dir, run)
             showToast(describe())
             await load()
           } catch (cause) {
@@ -2518,7 +2498,7 @@ window.__ModuleLoader__.load({
           const plan = await Api.rebasePlan(dir, sha)
           const answer = await showRebaseDialog({ base: sha, commits: plan?.commits ?? [] })
           if (!answer) return
-          const result = await Api.rebase(dir, sha, answer.entries)
+          const result = await withIdentity(dir, () => Api.rebase(dir, sha, answer.entries))
           // Rewritten hashes make the old selection meaningless.
           setActive('')
           setCommit(null)
@@ -2550,7 +2530,7 @@ window.__ModuleLoader__.load({
             showToast(tt('reword.unchanged'))
             return
           }
-          const result = await Api.reword(dir, entry.hash, next)
+          const result = await withIdentity(dir, () => Api.reword(dir, entry.hash, next))
           setActive('')
           setCommit(null)
           if (result?.paused === true) {

@@ -127,6 +127,18 @@ export class GitService {
   }
 
   /**
+   * Refuse an operation that would end in a commit git cannot attribute.
+   *
+   * Every one of these rewrites refs or leaves a sequencer paused, so the
+   * refusal has to come before it starts — git's own answer arrives halfway
+   * through a rebase, with the repository left mid-operation.
+   * @param {string} root
+   */
+  async requireIdentity(root) {
+    if (!(await hasAuthorIdentity(root))) throw new Error(IDENTITY_MISSING)
+  }
+
+  /**
    * Write `user.name` / `user.email` so commits stop failing.
    *
    * Repository-local unless `global` is asked for: a global write changes the
@@ -836,6 +848,7 @@ export class GitService {
     const requested = Array.isArray(input.entries) ? input.entries : []
     return this.withWriteLock(async () => {
       const root = await this.resolveDir(input.dir)
+      await this.requireIdentity(root)
       const plan = await this.#rebasePlan(root, base)
       const known = new Map(plan.commits.map((commit) => [commit.hash, commit]))
       if (requested.length !== known.size) throw new Error('the rebase plan must include every commit exactly once')
@@ -910,6 +923,7 @@ export class GitService {
     if (!message) throw new Error('the commit message cannot be empty')
     return this.withWriteLock(async () => {
       const root = await this.resolveDir(input.dir)
+      await this.requireIdentity(root)
       const status = await readStatus(root)
       if (status.operation) throw new Error(`a ${status.operation} is already in progress`)
       if (status.files.some((file) => file.staged || file.unstaged)) throw new Error('reword needs a clean worktree')
@@ -1098,7 +1112,7 @@ export class GitService {
     for (const file of files) assertSafePath(file)
     return this.withWriteLock(async () => {
       const root = await this.resolveDir(input.dir)
-      if (!(await hasAuthorIdentity(root))) throw new Error(IDENTITY_MISSING)
+      await this.requireIdentity(root)
       const status = await readStatus(root)
       if (status.operation) throw new Error(`a ${status.operation} is already in progress`)
       if (status.files.some((file) => file.kind === 'conflicted')) throw new Error('resolve the conflicts before committing')
@@ -1162,7 +1176,7 @@ export class GitService {
     if (message === '') throw new Error('commit message is empty')
     return this.withWriteLock(async () => {
       const root = await this.resolveDir(input.dir)
-      if (!(await hasAuthorIdentity(root))) throw new Error(IDENTITY_MISSING)
+      await this.requireIdentity(root)
       const args = ['commit', '-m', message]
       if (input.amend) args.push('--amend')
       if (input.files && input.files.length > 0) {
@@ -1196,7 +1210,7 @@ export class GitService {
    */
   async checkout(input) {
     const branch = (input.branch ?? '').trim()
-    if (!/^[A-Za-z0-9._\/-]+$/.test(branch) || branch.startsWith('-') || branch.includes('..')) {
+    if (!/^[\p{L}\p{N}._\/-]+$/u.test(branch) || branch.startsWith('-') || branch.includes('..')) {
       throw new Error(`invalid branch name: ${branch}`)
     }
     return this.withWriteLock(async () => {
@@ -1299,7 +1313,10 @@ export class GitService {
   async merge(input = {}) {
     const branch = this.branchToken(input.branch)
     const root = await this.resolveDir(input.dir)
-    return this.withWriteLock(() => this.network(root, ['merge', '--no-edit', branch]))
+    return this.withWriteLock(async () => {
+      await this.requireIdentity(root)
+      return this.network(root, ['merge', '--no-edit', branch])
+    })
   }
 
   /**
@@ -1312,6 +1329,7 @@ export class GitService {
     const branch = this.branchToken(input.branch)
     return this.withWriteLock(async () => {
       const root = await this.resolveDir(input.dir)
+      await this.requireIdentity(root)
       const status = await readStatus(root)
       if (status.operation) throw new Error(`a ${status.operation} is already in progress`)
       if (status.files.some((file) => file.staged || file.unstaged)) throw new Error('rebase needs a clean worktree')
@@ -1333,10 +1351,14 @@ export class GitService {
     })
   }
 
-  /** A branch-shaped argv token with no option or revision-range injection. */
+  /**
+   * A branch-shaped argv token with no option or revision-range injection.
+   * Letters are Unicode on purpose: a team names its branches in its own
+   * language, and `特性/登录重构` is a branch, not a bug.
+   */
   branchToken(value) {
     const branch = String(value ?? '').trim()
-    if (branch.length === 0 || branch.length > 255 || !/^[A-Za-z0-9._/-]+$/.test(branch) || branch.startsWith('-') || branch.includes('..')) {
+    if (branch.length === 0 || branch.length > 255 || !/^[\p{L}\p{N}._/-]+$/u.test(branch) || branch.startsWith('-') || branch.includes('..')) {
       throw new Error(`invalid branch name: ${branch.slice(0, 40)}`)
     }
     return branch
@@ -1349,7 +1371,7 @@ export class GitService {
    */
   refToken(value, what = 'ref') {
     const token = String(value ?? '').trim()
-    if (token.length === 0 || token.length > 255 || token.startsWith('-') || !/^[A-Za-z0-9._/@{}+=:^~-]+$/.test(token)) {
+    if (token.length === 0 || token.length > 255 || token.startsWith('-') || !/^[\p{L}\p{N}._/@{}+=:^~-]+$/u.test(token)) {
       throw new Error(`invalid ${what}: ${token.slice(0, 40)}`)
     }
     return token
@@ -1437,6 +1459,9 @@ export class GitService {
     const hashes = this.shaList(input.hashes ?? input.hash)
     return this.withWriteLock(async () => {
       const root = await this.resolveDir(input.dir)
+      // `-n` only touches the index, so it is the one form git can do without
+      // knowing who is asking.
+      if (!input.noCommit) await this.requireIdentity(root)
       const ordered = await this.chronological(root, hashes)
       const args = ['cherry-pick']
       if (input.noCommit) args.push('-n')
@@ -1454,6 +1479,7 @@ export class GitService {
     const hashes = this.shaList(input.hashes ?? input.hash)
     return this.withWriteLock(async () => {
       const root = await this.resolveDir(input.dir)
+      if (!input.noCommit) await this.requireIdentity(root)
       // Undoing a batch means undoing the oldest one first, so the branch ends
       // up where it was before the whole selection.
       const ordered = await this.chronological(root, hashes)
@@ -1670,21 +1696,21 @@ export class GitService {
    */
   remoteNameToken(value) {
     const name = String(value ?? '').trim()
-    if (name.length === 0 || name.length > 64 || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) {
+    if (name.length === 0 || name.length > 64 || !/^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u.test(name)) {
       throw new Error(`invalid remote name: ${name.slice(0, 40)}`)
     }
     return name
   }
 
   /**
-   * A remote URL goes to git as one argv entry. It may be an https/ssh/git
-   * URL, an scp-style `git@host:path`, or a local path — but never a leading
-   * dash (option injection) and never anything with whitespace or control
-   * characters in it.
+   * A remote URL goes to git as one argv entry, so a space in it is not a
+   * quoting problem — and a local path with a space in it is the ordinary case
+   * on Windows and macOS. Control characters stay out: they corrupt the log
+   * the URL is echoed to, and a leading dash would read as an option.
    */
   remoteUrlToken(value) {
     const url = String(value ?? '').trim()
-    if (url.length === 0 || url.length > 512 || url.startsWith('-') || [...url].some((ch) => ch.charCodeAt(0) <= 32)) {
+    if (url.length === 0 || url.length > 512 || url.startsWith('-') || [...url].some((ch) => ch.charCodeAt(0) < 32)) {
       throw new Error(`invalid remote url: ${url.slice(0, 40)}`)
     }
     return url
@@ -1769,7 +1795,7 @@ export function assertRev(rev) {
  */
 export function assertBranchName(value) {
   const name = typeof value === 'string' ? value.trim() : ''
-  const shape = /^[A-Za-z0-9._/-]+$/.test(name)
+  const shape = /^[\p{L}\p{N}._/-]+$/u.test(name)
   if (!shape || name.startsWith('-') || name.startsWith('/') || name.endsWith('/') || name.endsWith('.lock') || name.includes('..') || name.includes('//')) {
     throw new Error(`invalid branch name: ${String(value).slice(0, 60)}`)
   }
@@ -1785,8 +1811,8 @@ export function assertUpstreamName(value) {
   const name = typeof value === 'string' ? value.trim() : ''
   const remote = name.split('/')[0] ?? ''
   const branch = name.slice(remote.length + 1)
-  const remoteOk = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(remote)
-  const branchOk = /^[A-Za-z0-9._/-]+$/.test(branch)
+  const remoteOk = /^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u.test(remote)
+  const branchOk = /^[\p{L}\p{N}._/-]+$/u.test(branch)
   if (!remoteOk || !branchOk || name.includes('..') || name.includes('//') || branch.endsWith('/') || branch.endsWith('.lock')) {
     throw new Error(`invalid upstream branch: ${String(value).slice(0, 60)}`)
   }

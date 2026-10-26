@@ -638,3 +638,108 @@ test('a global identity goes to the global config, not the repository', async ()
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+/**
+ * History plus a branch to merge: every operation below has something real to
+ * do, so a refusal says it is the identity and not an unsuitable repository.
+ * @param {string} name
+ */
+async function makeAnonymousHistory(name) {
+  const dir = await makeRepo(name)
+  await writeFile(path.join(dir, 'a.txt'), 'a\n')
+  commitAll(dir, 'init')
+  gitSync(dir, ['checkout', '-q', '-b', 'side'])
+  await writeFile(path.join(dir, 'side.txt'), 'side\n')
+  commitAll(dir, 'side')
+  const side = gitSync(dir, ['rev-parse', 'HEAD']).trim()
+  gitSync(dir, ['checkout', '-q', 'main'])
+  await writeFile(path.join(dir, 'b.txt'), 'b\n')
+  commitAll(dir, 'on main')
+  const head = gitSync(dir, ['rev-parse', 'HEAD']).trim()
+  gitSync(dir, ['config', '--local', '--unset-all', 'user.name'])
+  gitSync(dir, ['config', '--local', '--unset-all', 'user.email'])
+  return { dir, side, head }
+}
+
+test('every operation that would write a commit refuses before git is run', async () => {
+  const { dir, side, head } = await makeAnonymousHistory('identity-ops')
+  const restore = withEnv(anonymousEnv(dir))
+  try {
+    const service = new GitService({ defaultDir: dir })
+    const operations = {
+      commit: () => service.commit({ dir, message: 'nope' }),
+      'commit paths': () => service.commitPaths({ dir, message: 'nope', files: ['a.txt'] }),
+      merge: () => service.merge({ dir, branch: 'side' }),
+      rebase: () => service.rebase({ dir, base: head, entries: [] }),
+      'rebase onto': () => service.rebaseOnto({ dir, branch: 'side' }),
+      reword: () => service.reword({ dir, sha: head, message: 'rewritten' }),
+      'cherry-pick': () => service.cherryPick({ dir, hashes: [side] }),
+      revert: () => service.revertCommit({ dir, hashes: [head] }),
+    }
+    for (const [name, operation] of Object.entries(operations)) {
+      await assert.rejects(operation, /git identity is not configured/, `${name} must ask for the identity`)
+    }
+    // Refusing after the fact would be the problem again: a merge that got as
+    // far as MERGE_HEAD leaves the repository paused and the retry refused.
+    assert.equal(gitSync(dir, ['rev-parse', 'HEAD']).trim(), head)
+    assert.equal(gitSync(dir, ['status', '--porcelain']).trim(), '')
+
+    // Two operations borrow their author from a commit that already exists, so
+    // they have to stay reachable — shelving work is never a matter of identity.
+    await writeFile(path.join(dir, 'c.txt'), 'c\n')
+    await service.stash({ dir, action: 'push', message: 'shelf' })
+    assert.equal((await service.stashList({ dir })).length, 1)
+    await service.createTag({ dir, name: 'v0.0.1', ref: head })
+    assert.match(gitSync(dir, ['tag', '-l']), /^v0\.0\.1$/m)
+
+    // The dialog's save button: write the identity and the same operation runs.
+    await service.saveIdentity({ dir, name: 'Ada Lovelace', email: 'ada@example.com' })
+    assert.equal((await service.merge({ dir, branch: 'side' })).ok, true)
+    assert.equal(gitSync(dir, ['log', '-1', '--format=%cn <%ce>']).trim(), 'Ada Lovelace <ada@example.com>')
+  } finally {
+    restore()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a branch named in Chinese is a branch, not a rejected character', async () => {
+  const dir = await makeRepo('unicode-names')
+  try {
+    await writeFile(path.join(dir, '说明.md'), '# 说明\n')
+    commitAll(dir, '初始化')
+    const service = new GitService({ defaultDir: dir })
+
+    await service.checkout({ dir, branch: '特性/登录重构', create: true })
+    const listed = await service.branches(dir)
+    assert.ok(listed.local.some((entry) => entry.name === '特性/登录重构'), 'the branch list has to read the name back')
+    assert.equal((await service.status(dir)).detached, false)
+
+    await service.createTag({ dir, name: '版本一' })
+    assert.match(gitSync(dir, ['tag', '-l']), /版本一/)
+
+    await service.renameBranch({ dir, branch: '特性/登录重构', name: '特性/登录' })
+    await service.checkout({ dir, branch: 'main' })
+    await service.deleteBranch({ dir, branch: '特性/登录' })
+    assert.equal((await service.branches(dir)).local.some((entry) => entry.name === '特性/登录'), false)
+
+    // A remote is named and addressed the same way: 公司镜像 is a name, and a
+    // local path with a space in it is the ordinary case on Windows.
+    await service.addRemote({ dir, name: '公司镜像', url: `${dir}/My Repos/镜像.git` })
+    assert.deepEqual(
+      (await service.listRemotes(dir)).map((entry) => [entry.name, entry.url]),
+      [['公司镜像', `${dir}/My Repos/镜像.git`]],
+    )
+
+    // The guard is about shape, never about the alphabet: what git could not
+    // store still never reaches argv.
+    for (const bad of ['two words', '--force', 'a..b', 'x~1']) {
+      await assert.rejects(() => service.checkout({ dir, branch: bad, create: true }), /invalid branch name/, `${bad} must stay refused`)
+    }
+    await assert.rejects(() => service.renameBranch({ dir, branch: 'main', name: 'end.lock' }), /invalid branch name/)
+    await assert.rejects(() => service.createTag({ dir, name: 'bad name' }), /invalid tag name/)
+    await assert.rejects(() => service.addRemote({ dir, name: 'bad name', url: './x' }), /invalid remote name/)
+    await assert.rejects(() => service.addRemote({ dir, name: 'ok', url: './x\ny' }), /invalid remote url/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

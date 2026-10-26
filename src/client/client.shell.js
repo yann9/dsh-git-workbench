@@ -10,7 +10,7 @@ window.__ModuleLoader__.load({
     const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
     const { Api, COMMIT_KIND, LOG_KIND, baseName, compareStore, config, openDiff, openTab, runNetOp, switchBranch, useRepoChanges, useSessionDirectory } = kit
-    const { Chip, GitIcon, GitIcons, Menu, MenuRow, copyText, iconMarkup, openContextMenu, openNamePrompt, reportError, showConfirm, showRemotesDialog, showStashDialog, showToast } = require('@yann9/dsh-git-workbench/client.ui.js')
+    const { Chip, GitIcon, GitIcons, Menu, MenuRow, copyText, iconMarkup, openContextMenu, openNamePrompt, reportError, showConfirm, showRemotesDialog, showStashDialog, showToast, withIdentity } = require('@yann9/dsh-git-workbench/client.ui.js')
     const { tt } = require('@yann9/dsh-git-workbench/client.i18n.js')
 
     /**
@@ -141,7 +141,7 @@ window.__ModuleLoader__.load({
         }
         setBusy(kind)
         try {
-          showToast(await runNetOp(dir, kind, branch, options))
+          showToast(await withIdentity(dir, () => runNetOp(dir, kind, branch, options)))
           await load()
           if (onDone) onDone()
         } catch (cause) {
