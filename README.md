@@ -13,7 +13,7 @@
 
 [中文](README.zh.md) · [Features](docs/features.md) · [HTTP API](docs/api.md) · [Architecture](docs/architecture.md) · [Design notes](docs/jetbrains-parity.md) · [Development](docs/development.md)
 
-![Commit pane](docs/assets/commit-pane-light.png)
+![Commit pane](docs/assets/commit-pane-en-light.png)
 
 ## What it is
 
@@ -33,11 +33,11 @@ It also plugs into DSH surfaces you already use: the branch chip in the session 
 
 | Diff (side-by-side, word-level) | History (graph + sortable table) |
 |---|---|
-| ![Diff](docs/assets/diff-light.png) | ![History](docs/assets/history-light.png) |
+| ![Diff](docs/assets/diff-en-light.png) | ![History](docs/assets/history-en-light.png) |
 | **Conflict resolution** | **Stash (name + partial files)** |
-| ![Conflict](docs/assets/conflict-light.png) | ![Stash dialog](docs/assets/stash-dialog-light.png) |
+| ![Conflict](docs/assets/conflict-en-light.png) | ![Stash dialog](docs/assets/stash-dialog-en-light.png) |
 
-Dark-theme versions live next to them in [docs/assets](docs/assets) (`*-dark.png`).
+Dark-theme versions live next to them in [docs/assets](docs/assets) (`*-en-dark.png`). The Chinese-UI set is the same files without the `-en` infix (`*-light.png` / `*-dark.png`), used by [README.zh.md](README.zh.md).
 
 ## Install
 
