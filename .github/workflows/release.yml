@@ -98,7 +98,8 @@ jobs:
       # publishConfig already pins registry.npmjs.org, so a mirror configured
       # on the runner cannot swallow the publish. The identity comes from OIDC:
       # npm rejects this unless the package's Trusted Publisher lists
-      # yann9 / dsh-git-workbench / release.yml (Environment left blank).
+      # yann9 / dsh-git-workbench / release.yml (Environment left blank) *and*
+      # allows `npm publish` — staging alone is not enough.
       # A re-run of a tag whose version already landed must not fail here.
       - name: Publish to npm
         env:
@@ -122,12 +123,28 @@ jobs:
       # The published tarball is what DSH resolves: the bundle manifest and every
       # client chunk have to be inside it.
       - name: Verify the published payload
+        env:
+          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          version="${VERSION#v}"
+          # npm processes a publish in the background, so the version only
+          # reaches the packument a few minutes after the upload returns.
+          for attempt in $(seq 1 30); do
+            if npm view "@yann9/dsh-git-workbench@${version}" version \
+              --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+              break
+            fi
+            echo "waiting for ${version} to appear on npm (${attempt}/30)"
+            sleep 10
+          done
+          npm view "@yann9/dsh-git-workbench@${version}" version \
+            --registry=https://registry.npmjs.org/ >/dev/null
           dir="$(mktemp -d)"
           cd "$dir"
           npm init -y >/dev/null
-          npm install --no-audit --no-fund @yann9/dsh-git-workbench@"${GITHUB_REF_NAME#v}"
+          npm install --no-audit --no-fund --prefer-online \
+            @yann9/dsh-git-workbench@"${version}"
           root=node_modules/@yann9/dsh-git-workbench
           test -f "$root/cordis.patch.yml"
           test -f "$root/src/index.js"

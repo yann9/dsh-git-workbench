@@ -74,13 +74,16 @@ git push origin main --tags               # tag 一落地就触发发布
 1. **发布闸门**：跑和 CI 完全相同的四矩阵测试（Ubuntu / Windows × Node 22 / 24），全绿才继续。
 2. **GitHub Release**：`scripts/release-notes.js` 生成说明，`gh release create`（同一 tag 重跑则 `release edit`；tag 里带 `-rc.N` 之类后缀的自动标成 prerelease）。
 3. **npm publish**：`npm publish --provenance --access public`，registry 由 `publishConfig` 钉死官方源。
-4. **回读校验**：从官方源装一次，检查 `cordis.patch.yml`、`src/index.js`、七个 client chunk 与两个 locale 都在包里 —— DSH 解析 bundle 需要的东西缺一个都算发布失败。
+4. **回读校验**：等 npm 把新版本放进 packument（发布是异步处理的，可能要几分钟），再从官方源装一次，检查 `cordis.patch.yml`、`src/index.js`、七个 client chunk 与两个 locale 都在包里 —— DSH 解析 bundle 需要的东西缺一个都算发布失败。
 
 **仓库里不放任何 npm token**：发布用 npm 的 Trusted Publishing（OIDC）。GitHub Actions 的这次运行身份就是发布凭据，npm 那边按「哪个仓库、哪个 workflow 文件」来认。绑定是一次性的人工操作，只能在 npm 网站做（脚本代替不了）：
 
 1. 打开包的 **Settings → Publishing access → Trusted Publisher**（`https://www.npmjs.com/settings/yann9/packages/dsh-git-workbench/access`）。
 2. 填 GitHub Actions：Repository owner `yann9`、Repository name `dsh-git-workbench`、Workflow filename `release.yml`（**只填文件名，不填 `.github/workflows/` 路径**）、Environment 留空（workflow 没声明 environment）。
-3. 未验证的新绑定 48 小时后过期，所以要么绑完立刻推 tag 让它发布一次，要么下次再绑。
+3. **勾上允许 `npm publish`**：npm 的 Trusted Publisher 有两个互不相关的权限 —— `npm stage publish` 默认就有，直接 `npm publish` 要单独开。只勾暂存的话，发布会以 `403 … OIDC permission denied for this action` 失败。
+4. 未验证的新绑定 48 小时后过期，所以要么绑完立刻推 tag 让它发布一次，要么下次再绑。
+
+也可以用 CLI 配（需要 2FA）：`npm trust github @yann9/dsh-git-workbench --file release.yml --repo yann9/dsh-git-workbench --allow-publish --registry=https://registry.npmjs.org/`；每个包同一时间只有一条绑定，要改先 `npm trust list` 拿 id、再 `npm trust revoke --id=<id>`。
 
 另外两件事：workflow 的 `id-token: write` 权限是凭据来源，去掉它就换不到发布身份；发布用的 npm CLI 必须 **≥ 11.16**，所以 release job 钉 Node 24（Node 22 自带的 npm 太旧，脚本里有一步显式检查并报错）。发布事件只用 `push: tags`，不要用 `pull_request_target` —— 那是已知攻击面。
 
