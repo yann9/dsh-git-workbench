@@ -1,0 +1,7 @@
+# Bundle patch for @yann9/dsh-git-workbench.
+# The host half owns the Git engine, the REST surface and the model tools;
+# the browser half (package.json `dsh.client`) registers the sidebar entry and
+# the main-area panel that hosts the workbench.
+- insert:
+    - id: git-workbench
+      name: '@yann9/dsh-git-workbench'

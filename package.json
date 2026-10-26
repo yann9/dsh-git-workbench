@@ -1,0 +1,76 @@
+{
+  "name": "@yann9/dsh-git-workbench",
+  "version": "0.1.0",
+  "description": "JetBrains-style Git workbench for DeepSeek Harness: local changes, hunk/line staging, side-by-side diff, commit window, commit graph, annotate.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client/browser.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "locale/*.json",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "docs/*.md",
+    "docs/assets"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "git",
+    "diff",
+    "staging",
+    "git-log",
+    "blame",
+    "jetbrains",
+    "ide",
+    "vcs"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "dev:static": "node scripts/dev-server.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "license": "MIT",
+  "author": "yann9",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yann9/dsh-git-workbench.git"
+  },
+  "homepage": "https://github.com/yann9/dsh-git-workbench#readme",
+  "bugs": {
+    "url": "https://github.com/yann9/dsh-git-workbench/issues"
+  }
+}

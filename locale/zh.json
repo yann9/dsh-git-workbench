@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Git 工作台",
+    "description": "JetBrains 风格的 Git 工作台：本地改动、Hunk/行级暂存、并排 Diff、提交窗口、提交图、追溯注释。"
+  }
+}

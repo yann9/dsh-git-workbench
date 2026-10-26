@@ -1,0 +1,8 @@
+.shots/
+node_modules/
+*.log
+.DS_Store
+.probe/
+
+# internal design journal and local experiment notes, not published
+docs/internal/

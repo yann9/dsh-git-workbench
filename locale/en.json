@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Git workbench",
+    "description": "JetBrains-style Git workbench: local changes, hunk/line staging, side-by-side diff, commit window, commit graph, annotate."
+  }
+}
