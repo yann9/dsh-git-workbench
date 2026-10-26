@@ -125,6 +125,8 @@ Every git call is `spawn('git', argv)` with **no shell**; writes are serialized;
 
 semver, with `package.json`, the [CHANGELOG.md](CHANGELOG.md) heading and the git tag (`v0.1.0`) always kept in sync. CI runs the test suite on Ubuntu and Windows across Node 22 / 24 — four jobs, all green before a merge.
 
+Pushing a tag *is* the release: `.github/workflows/release.yml` gates on the same matrix, creates the GitHub Release with notes grouped by conventional commit type, publishes to npm through Trusted Publishing (OIDC — no token in the repository) and then re-installs the published tarball to verify its payload. See [docs/development.md](docs/development.md) for the workflow and the Trusted Publisher binding.
+
 ## License
 
 [MIT](LICENSE)

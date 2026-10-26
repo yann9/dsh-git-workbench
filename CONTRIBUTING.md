@@ -11,7 +11,7 @@
 ```bash
 dsh plugin --profile web add link:<仓库绝对路径>
 dsh web          # 改完代码重启
-npm test         # 101 个用例，真实 git 仓库
+npm test         # 104 个用例，真实 git 仓库
 ```
 
 没有构建步骤：不要引入打包器、不要生成产物。host 与 client 都必须能在 Node / 宿主模块系统里直接加载。
@@ -22,7 +22,7 @@ npm test         # 101 个用例，真实 git 仓库
 - **写操作必须进 `GitService`**，由 `withWriteLock` 串行化；不要绕过它直接改 index。
 - **host 返回值是 UI 的唯一事实来源**：客户端不要自行推导 ahead/behind、状态字母或可写性。
 - 注释用英文，只在"为什么"不明显时写一行。
-- 提交信息用 Conventional Commits：`feat:` / `fix:` / `docs:` / `chore:` / `refactor:`，正文说明动机。
+- 提交信息用 Conventional Commits：`feat:` / `fix:` / `docs:` / `chore:` / `refactor:`，正文说明动机。破坏性变更写 `feat(scope)!:` 或正文里的 `BREAKING CHANGE:`；GitHub Release 的说明就是按这些前缀分组的（见 [docs/development.md](docs/development.md)）。
 
 ## 改 UI 时
 

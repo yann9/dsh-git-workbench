@@ -1,0 +1,124 @@
+name: Release
+
+# Pushing a version tag is the whole release trigger: the test matrix gates it,
+# the release notes come from the conventional commits since the previous tag,
+# and npm publish follows in the same run.
+on:
+  push:
+    tags: ['v[0-9]*']
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # The suite creates real repositories; git needs an identity and must not
+      # rewrite line endings, otherwise the CRLF-sensitive cases change meaning.
+      - name: Configure git
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global core.autocrlf false
+          git config --global init.defaultBranch main
+
+      - name: Test
+        run: npm test
+
+  release:
+    name: GitHub release + npm (${{ github.ref_name }})
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # npm trusted publishing: this OIDC identity *is* the publish credential,
+      # so there is no NPM_TOKEN anywhere in the repository or its secrets.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The notes diff this tag against the previous one, so the whole
+          # tag history has to be present.
+          fetch-depth: 0
+
+      # Trusted publishing needs npm CLI >= 11.16; Node 24 ships a new enough
+      # one, Node 22 does not.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Check the npm CLI can do trusted publishing
+        run: |
+          set -euo pipefail
+          version="$(npm -v)"
+          echo "npm ${version}"
+          node -e '
+            const [major, minor] = process.argv[1].split(".").map(Number)
+            if (major < 11 || (major === 11 && minor < 16)) {
+              console.error("npm " + process.argv[1] + " is too old: trusted publishing needs >= 11.16")
+              process.exit(1)
+            }
+          ' "${version}"
+
+      - name: Build the release notes
+        run: node scripts/release-notes.js --tag "${{ github.ref_name }}" --output "${RUNNER_TEMP}/notes.md"
+
+      - name: Show the notes in the log
+        run: cat "${RUNNER_TEMP}/notes.md"
+
+      # A re-run of the same tag must refresh the release instead of failing.
+      # Tags carrying a prerelease suffix (v1.2.0-rc.1) are marked as such.
+      - name: Create or refresh the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ contains(github.ref_name, '-') && '--prerelease' || '' }}
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" --notes-file "${RUNNER_TEMP}/notes.md"
+          else
+            # shellcheck disable=SC2086
+            gh release create "${GITHUB_REF_NAME}" \
+              --target "${GITHUB_SHA}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file "${RUNNER_TEMP}/notes.md" \
+              ${PRERELEASE}
+          fi
+
+      # publishConfig already pins registry.npmjs.org, so a mirror configured
+      # on the runner cannot swallow the publish. The identity comes from OIDC:
+      # npm rejects this unless the package's Trusted Publisher lists
+      # yann9 / dsh-git-workbench / release.yml (Environment left blank).
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+
+      # The published tarball is what DSH resolves: the bundle manifest and every
+      # client chunk have to be inside it.
+      - name: Verify the published payload
+        run: |
+          set -euo pipefail
+          dir="$(mktemp -d)"
+          cd "$dir"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund @yann9/dsh-git-workbench@"${GITHUB_REF_NAME#v}"
+          root=node_modules/@yann9/dsh-git-workbench
+          test -f "$root/cordis.patch.yml"
+          test -f "$root/src/index.js"
+          test -f "$root/src/client/browser.js"
+          for chunk in i18n styles core ui shell panes diff; do
+            test -f "$root/src/client/client.${chunk}.js"
+          done
+          test -f "$root/locale/zh.json"
+          test -f "$root/locale/en.json"
+          grep -q "name: '@yann9/dsh-git-workbench'" "$root/cordis.patch.yml"
+          echo "installed payload ok"

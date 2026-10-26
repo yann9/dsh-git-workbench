@@ -59,22 +59,51 @@ npm test
 - 只裁浏览器外框，不裁界面；不要出现用户仓库的真实路径、分支名或提交信息——用演示仓库。
 - 关键交互状态（只读徽标、冲突计数、进行中的网络操作）值得单独截，但不要为此拼图或加标注。
 
-## 发布到 GitHub
+## 发布：一个 tag 触发全部
 
-1. `package.json` 里的 `repository`、`homepage`、`bugs`、`author` 已经填成真实账号信息；改版本或换账号时别留下占位符。
-2. 确认 `LICENSE` 的版权人一行与你希望的一致（当前是 `dsh-git-workbench contributors`）。
-3. `git init` 后首次提交，分支用 `main`；`docs/internal/` 已在 `.gitignore` 里，设计日志不会被推上去。
-4. CI（`.github/workflows/ci.yml`）会在 Ubuntu 与 Windows 上的 Node 22 / 24 跑 `npm test`；首次推送后确认四个 job 全绿。
-5. 打 tag 并与 `CHANGELOG.md` 的版本号一致：
+版本号三处必须一致：`package.json` 的 `version`、`CHANGELOG.md` 的段落标题、git tag。
 
 ```bash
-# 三处版本号保持一致：package.json、CHANGELOG.md 的标题、tag
-git add -A && git commit -m "chore: release 0.1.0"
+git add -A && git commit -m "feat: …"     # 提交信息写 conventional，release notes 靠它分组
 git tag v0.1.0
-git push origin main --tags
+git push origin main --tags               # tag 一落地就触发发布
 ```
 
-## 发布到 npm
+`.github/workflows/release.yml` 接手，顺序是：
+
+1. **发布闸门**：跑和 CI 完全相同的四矩阵测试（Ubuntu / Windows × Node 22 / 24），全绿才继续。
+2. **GitHub Release**：`scripts/release-notes.js` 生成说明，`gh release create`（同一 tag 重跑则 `release edit`；tag 里带 `-rc.N` 之类后缀的自动标成 prerelease）。
+3. **npm publish**：`npm publish --provenance --access public`，registry 由 `publishConfig` 钉死官方源。
+4. **回读校验**：从官方源装一次，检查 `cordis.patch.yml`、`src/index.js`、七个 client chunk 与两个 locale 都在包里 —— DSH 解析 bundle 需要的东西缺一个都算发布失败。
+
+**仓库里不放任何 npm token**：发布用 npm 的 Trusted Publishing（OIDC）。GitHub Actions 的这次运行身份就是发布凭据，npm 那边按「哪个仓库、哪个 workflow 文件」来认。绑定是一次性的人工操作，只能在 npm 网站做（脚本代替不了）：
+
+1. 打开包的 **Settings → Publishing access → Trusted Publisher**（`https://www.npmjs.com/settings/yann9/packages/dsh-git-workbench/access`）。
+2. 填 GitHub Actions：Repository owner `yann9`、Repository name `dsh-git-workbench`、Workflow filename `release.yml`（**只填文件名，不填 `.github/workflows/` 路径**）、Environment 留空（workflow 没声明 environment）。
+3. 未验证的新绑定 48 小时后过期，所以要么绑完立刻推 tag 让它发布一次，要么下次再绑。
+
+另外两件事：workflow 的 `id-token: write` 权限是凭据来源，去掉它就换不到发布身份；发布用的 npm CLI 必须 **≥ 11.16**，所以 release job 钉 Node 24（Node 22 自带的 npm 太旧，脚本里有一步显式检查并报错）。发布事件只用 `push: tags`，不要用 `pull_request_target` —— 那是已知攻击面。
+
+第一次绑定前如果要先出包，就走下面的手动发布（OTP）路子，之后再补绑定。
+
+发出去之前还有两行核对：`LICENSE` 的版权人一行（当前是 `dsh-git-workbench contributors`）、`package.json` 的 `repository` / `homepage` / `bugs` / `author` 是真实账号信息。`docs/internal/` 已在 `.gitignore` 里，设计日志不会被推上去。
+
+`scripts/` 不在 `files` 里，发布用的脚本不会进包。
+
+### release notes 是怎么分组的
+
+- 取 `git log --no-merges <上一个 tag>..<本次 tag>`，按 conventional 前缀归到 Features / Bug fixes / Performance / Refactoring / Documentation / Style / Tests / Build / CI / Reverts / Chores，没有前缀的进 Other changes。
+- 前缀带 `!` 或正文里出现 `BREAKING CHANGE:` 的，额外单列到 Breaking changes。
+- `chore(release): …` 这类发布整理提交自己过滤掉，说明里不写。
+- `CHANGELOG.md` 里对应版本的那段作为开头正文（人写的摘要在前，提交列表是审计线索）；找不到就只列提交。
+- 本地预览：
+
+```bash
+node scripts/release-notes.js --tag v0.1.0 --output /tmp/notes.md
+node scripts/release-notes.js --tag v0.1.0 --no-changelog   # 只要提交列表
+```
+
+## 手动发布到 npm
 
 包名是 `@yann9/dsh-git-workbench`。不带 scope 的 `dsh-git-workbench` 在 npm 上已被另一个项目占用（`0.3.4`，维护者不是本项目），所以从一开始就用 scope。
 
@@ -86,7 +115,7 @@ git push origin main --tags
 
 已安装的 profile 也要同步：`node_modules/@<scope>/<包名>` 的目录、`package.json` 里的依赖键和 `dsh.profile.bundles` 条目。
 
-检查清单：
+不经过 CI 手动发布时的检查清单：
 
 ```bash
 npm test

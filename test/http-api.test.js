@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, writeFile, rm, readFile } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -31,8 +32,19 @@ function gitMaybe(cwd, args) {
   }
 }
 
+/**
+ * Windows hands out `$TMP` in its 8.3 form (`C:\Users\RUNNER~1\…`) on the CI
+ * runners, while git reports the long form for the same folder — so every
+ * fixture root is canonicalised before it is compared with anything the
+ * service resolved.
+ * @param {string} prefix
+ */
+async function makeTempDir(prefix) {
+  return realpathSync(await mkdtemp(path.join(tmpdir(), prefix)))
+}
+
 async function makeRepo() {
-  const dir = await mkdtemp(path.join(tmpdir(), 'dsh-git-http-'))
+  const dir = await makeTempDir('dsh-git-http-')
   gitSync(dir, ['init', '-q', '-b', 'main'])
   gitSync(dir, ['config', 'user.email', 'dev@example.com'])
   gitSync(dir, ['config', 'user.name', 'Dev'])
@@ -109,7 +121,7 @@ test('http api serves status, diff, stage, commit and refuses cross-origin write
 })
 
 test('http api reports a readable error for a non-repository path', async () => {
-  const outside = await mkdtemp(path.join(tmpdir(), 'dsh-git-norepo-'))
+  const outside = await makeTempDir('dsh-git-norepo-')
   const { server, base } = await startServer(outside)
   try {
     const response = await fetch(`${base}/api/status`)
@@ -641,7 +653,7 @@ test('listing workspaces does not require the default dir to be a repository', a
   // Regression: the revision was computed for every GET, so a server started in
   // a non-repo directory answered 500 for /workspaces — the very endpoint the
   // client uses to find a repository.
-  const outside = await mkdtemp(path.join(tmpdir(), 'dsh-git-noworkspace-'))
+  const outside = await makeTempDir('dsh-git-noworkspace-')
   const { server, base } = await startServer(outside)
   try {
     const response = await fetch(`${base}/api/workspaces`)
@@ -1202,7 +1214,7 @@ test('a stash keeps its message, takes untracked files and can be applied or dro
 })
 
 test('init turns a plain folder into a repository without touching its files', async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), 'dsh-git-http-init-'))
+  const dir = await makeTempDir('dsh-git-http-init-')
   await writeFile(path.join(dir, 'note.txt'), 'keep me\n')
   const { server, base } = await startServer(dir)
   const post = (pathname, body) => fetch(`${base}/api${pathname}`, {
@@ -1922,7 +1934,7 @@ test('ignoreWhitespace hides whitespace-only changes in file, commit and stash d
 
 test('remotes can be listed, added, edited and removed, and a first push targets them', async () => {
   const dir = await makeRepo()
-  const bare = await mkdtemp(path.join(tmpdir(), 'dsh-git-remote-'))
+  const bare = await makeTempDir('dsh-git-remote-')
   gitSync(bare, ['init', '-q', '--bare'])
   const { server, base } = await startServer(dir)
   const post = async (route, body) => {
@@ -2011,7 +2023,7 @@ test('remotes stay read-only when the workbench is read-only', async () => {
 
 test('a branch can be pointed at a remote branch and released again', async () => {
   const dir = await makeRepo()
-  const bare = await mkdtemp(path.join(tmpdir(), 'dsh-git-upstream-'))
+  const bare = await makeTempDir('dsh-git-upstream-')
   gitSync(bare, ['init', '-q', '--bare'])
   const { server, base } = await startServer(dir)
   const post = async (route, body) => {
