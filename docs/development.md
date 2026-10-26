@@ -132,7 +132,7 @@ npm login --registry=https://registry.npmjs.org/
 npm whoami --registry=https://registry.npmjs.org/
 ```
 
-`package.json` 的 `files` 已经限定为 `src`、`locale/*.json`、`cordis.patch.yml`、`README.md`、`README.en.md`、`CHANGELOG.md`、`CONTRIBUTING.md`、`SECURITY.md`、`docs/*.md` 与 `docs/assets`；`package.json` 与 `LICENSE` 由 npm 自动包含。`docs/internal/` 既在 `.gitignore` 里也不在 `files` 里，不会进包。发布前先 `npm login`（项目里没有 `.npmrc` 或 token），发布后从干净 profile 验一次：
+`package.json` 的 `files` 已经限定为 `src`、`locale/*.json`、`cordis.patch.yml`、`README.md`、`README.zh.md`、`CHANGELOG.md`、`CONTRIBUTING.md`、`SECURITY.md`、`docs/*.md` 与 `docs/assets`；`package.json` 与 `LICENSE` 由 npm 自动包含。`docs/internal/` 既在 `.gitignore` 里也不在 `files` 里，不会进包。发布前先 `npm login`（项目里没有 `.npmrc` 或 token），发布后从干净 profile 验一次：
 
 ```bash
 dsh plugin --profile web add @yann9/dsh-git-workbench

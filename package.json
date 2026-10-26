@@ -15,7 +15,7 @@
     "locale/*.json",
     "cordis.patch.yml",
     "README.md",
-    "README.en.md",
+    "README.zh.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "SECURITY.md",

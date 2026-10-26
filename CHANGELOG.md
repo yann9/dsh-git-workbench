@@ -21,6 +21,9 @@ Release infrastructure only; the plugin itself is unchanged.
 
 ### Changed
 
+- The default README is the English one — npm's package page and the repository
+  front page show it. The Chinese version moved to `README.zh.md` and stays one
+  click away from the language line at the top.
 - The release pipeline is safe to re-run: a tag whose version already landed on
   npm skips the publish instead of failing, and a prerelease tag is published
   under the `next` dist-tag instead of taking over `latest`.
