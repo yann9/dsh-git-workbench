@@ -14,6 +14,10 @@ Release infrastructure only; the plugin itself is unchanged.
   form (`C:\Users\RUNNER~1\…`) while git reports the long name for the same
   folder, and Node cannot expand the short name — so the two assertions that
   mixed a fixture path with a host-resolved root now compare file identity.
+- The release notes read the conventional commits correctly: a commit that
+  only mentions "BREAKING CHANGE" in its prose is no longer listed as a
+  breaking change, and the `chore(release):` commit no longer shows up in the
+  notes at all.
 
 ### Changed
 

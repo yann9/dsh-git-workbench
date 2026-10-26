@@ -70,6 +70,18 @@ function previousTag(tag) {
   }
 }
 
+/**
+ * A release housekeeping commit (`chore(release): 0.2.0`) says nothing about
+ * the release itself, so it never reaches the notes.
+ * @param {{ subject: string }} entry
+ */
+function isReleaseHousekeeping(entry) {
+  const match = /^(\w+)(\(([^)]*)\))?(!)?:\s*(.+)$/.exec(entry.subject)
+  if (!match || match[1].toLowerCase() !== 'chore') return false
+  const scope = (match[3] ?? '').toLowerCase()
+  return scope === 'release' || /^release\b/i.test(match[5])
+}
+
 function commits(range) {
   const raw = git(['log', '--no-merges', `--format=${RECORD}%h${FIELD}%s${FIELD}%b`, range])
   return raw
@@ -80,14 +92,14 @@ function commits(range) {
       const [hash, subject, body = ''] = chunk.split(FIELD)
       return { hash, subject: subject.trim(), body }
     })
-    // A release housekeeping commit says nothing about the release itself.
-    .filter((entry) => !/^chore(\([^)]*\))?!?:\s*release\b/i.test(entry.subject))
+    .filter((entry) => !isReleaseHousekeeping(entry))
 }
 
 /** `feat(api)!: subject` → type `feat`, scope `api`, breaking flag. */
 function classify(entry) {
   const match = /^(\w+)(\(([^)]*)\))?(!)?:\s*(.+)$/.exec(entry.subject)
-  const breaking = Boolean(match?.[4]) || /BREAKING CHANGE|BREAKING-CHANGE/.test(entry.body)
+  // The footer is the marker; the phrase in prose is not.
+  const breaking = Boolean(match?.[4]) || /^BREAKING[ -]CHANGE:/m.test(entry.body)
   if (!match) return { type: 'other', scope: '', text: entry.subject, breaking }
   const type = match[1].toLowerCase()
   return {
