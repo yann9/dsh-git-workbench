@@ -153,6 +153,55 @@ test('every chunk registers and materialises against the module contract', async
   assert.equal('ctx' in modules.core, true)
 })
 
+test('the diff view registers again when the host re-declares its slot', async () => {
+  const { registered, ReactStub, sandboxModules } = await loadRegistry()
+  const materialize = makeMaterializer(registered, ReactStub)
+  const core = materialize(`${OWNER}/client.core.js`)
+  // There is no view ring in this sandbox, so activateDiffView must not start
+  // its polling loop — the registration itself is what this test is about.
+  sandboxModules.setTimeout = () => 0
+  sandboxModules.window.setTimeout = () => 0
+
+  const views = []
+  let liveDispose = null
+  let rerun = null
+  const ctx = {
+    slots: {
+      inject(key, callback) {
+        assert.equal(key, 'conversation.view')
+        const run = () => {
+          liveDispose = callback()
+        }
+        run()
+        // The slots service disposes the effect and runs it again when the
+        // declaration collapses and comes back.
+        rerun = () => {
+          liveDispose?.()
+          run()
+        }
+        return () => liveDispose?.()
+      },
+      register(descriptor) {
+        views.push(descriptor)
+        return () => {
+          const at = views.indexOf(descriptor)
+          if (at >= 0) views.splice(at, 1)
+        }
+      },
+    },
+  }
+
+  core.openDiff(ctx, { dir: '/repo', file: 'a.js', source: 'working' })
+  assert.deepEqual(views.map((view) => view.id), ['git-diff'])
+
+  rerun()
+  assert.deepEqual(views.map((view) => view.id), ['git-diff'], 'the re-run must register the view again, not return the dead disposer')
+
+  // a second click still finds the flag set and leaves the single tab alone
+  core.openDiff(ctx, { dir: '/repo', file: 'b.js', source: 'working' })
+  assert.equal(views.length, 1)
+})
+
 test('tt falls back through zh/en and substitutes parameters', async () => {
   const zh = (await loadClient('zh-CN')).i18n
   assert.equal(zh.tt('tab.commit'), '提交')
@@ -531,7 +580,7 @@ test("git's own refusals answer in the UI language", async () => {
   }
 })
 
-test('a delivery card sends Git to the working tree; a changes card to its turn', async () => {
+test('both card flavours open the in-conversation diff for their turn', async () => {
   const { shell, core } = await loadClient()
   const opened = []
   core.ctx = {
@@ -540,20 +589,25 @@ test('a delivery card sends Git to the working tree; a changes card to its turn'
   }
   const click = (actionUrl) => shell.CardAction({ actionUrl }).props.onClick()
 
-  // The host only answers a turn snapshot for a `workspace/changes` event, and
-  // a delivery card carries the coordinates of its `deliverables/presented`
-  // one — asking with that seq could only ever end in an error page.
+  // A delivery card numbers its `deliverables/presented` event, a review card
+  // its `workspace/changes` one. Both name a turn, and the turn service bridges
+  // the sequences server-side — so neither may be sent to the commit pane.
   click('api/present.open?sessionId=s-1&seq=42&index=0')
-  assert.deepEqual(opened, ['dsh-git-commit'])
-
-  click('api/changes.open?sessionId=s-1&seq=42&index=1')
-  // Field by field: the store's object was built inside the chunk's realm, so
-  // it does not share this test's Object.prototype.
-  const target = core.diffTargetStore.target
+  let target = core.diffTargetStore.target
   assert.deepEqual(
     [target.source, target.session, target.seq, target.index],
-    ['turn', 's-1', '42', '1'],
+    ['turn', 's-1', '42', '0'],
   )
+
+  click('api/changes.open?sessionId=s-1&seq=46&index=1')
+  // Field by field: the store's object was built inside the chunk's realm, so
+  // it does not share this test's Object.prototype.
+  target = core.diffTargetStore.target
+  assert.deepEqual(
+    [target.source, target.session, target.seq, target.index],
+    ['turn', 's-1', '46', '1'],
+  )
+  assert.deepEqual(opened, [])
 })
 
 test('walkFileTree renders flat or tree and honours folder collapse state', async () => {

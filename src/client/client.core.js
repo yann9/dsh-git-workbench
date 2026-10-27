@@ -218,7 +218,7 @@ window.__ModuleLoader__.load({
       log: (dir, all = true) => api(dir, '/log', { params: { limit: config().maxLog, all: all ? '1' : '0' }}),
       branches: (dir) => api(dir, '/branches', {}),
       blame: (dir, file) => api(dir, '/blame', { params: { file }}),
-      turn: (dir, session, seq) => api(dir, '/turn', { params: { session, seq }}),
+      turn: (dir, session, seq, index) => api(dir, '/turn', { params: { session, seq, index }}),
       workspaces: () => api('', '/workspaces', {}),
       config: () => api('', '/config', {}),
       saveConfig: (patch) => api('', '/config', { method: 'POST', body: patch }),
@@ -662,27 +662,38 @@ window.__ModuleLoader__.load({
 
     function ensureDiffView(ctx) {
       if (diffViewRegistered) return
+      if (!ctx || typeof ctx.slots?.inject !== 'function') return
       diffViewRegistered = true
-      ctx.slots.inject('conversation.view', () => {
-        if (diffViewDisposer) return diffViewDisposer
-        const disposer = ctx.slots.register(
-          {
-            name: 'conversation.view',
-            id: 'git-diff',
-            // order 5 lands the tab between 对话 (first) and 轨迹 (order 10).
-            order: 5,
-            label: () => tt('tab.diff'),
-          },
-          // NOT React.lazy: a lazy component suspends on first render, and a
-          // suspension during the synchronous click that opens the tab throws
-          // React #426 ("suspended while responding to synchronous input"),
-          // which blanks the view. This host waits for the chunk in state and
-          // renders a loading row meanwhile — same bytes, no suspension.
-          DiffViewHost,
-        )
-        diffViewDisposer = typeof disposer === 'function' ? disposer : null
-        return disposer
-      })
+      try {
+        ctx.slots.inject('conversation.view', () => {
+          // The slots service disposes this effect and runs it again whenever
+          // the slot declaration collapses and comes back. Returning the
+          // previous disposer here (as an earlier version did) looked like a
+          // guard but left the view unregistered for good: that disposer is
+          // dead by then, no tab is created, and every later click is a silent
+          // no-op. Registering again is the whole point of the re-run.
+          const disposer = ctx.slots.register(
+            {
+              name: 'conversation.view',
+              id: 'git-diff',
+              // order 5 lands the tab between 对话 (first) and 轨迹 (order 10).
+              order: 5,
+              label: () => tt('tab.diff'),
+            },
+            // NOT React.lazy: a lazy component suspends on first render, and a
+            // suspension during the synchronous click that opens the tab throws
+            // React #426 ("suspended while responding to synchronous input"),
+            // which blanks the view. This host waits for the chunk in state and
+            // renders a loading row meanwhile — same bytes, no suspension.
+            DiffViewHost,
+          )
+          diffViewDisposer = typeof disposer === 'function' ? disposer : null
+          return disposer
+        })
+      } catch (error) {
+        diffViewRegistered = false
+        console.warn('[git-workbench] could not register the diff view', error)
+      }
     }
 
     function closeDiffView() {
@@ -700,14 +711,16 @@ window.__ModuleLoader__.load({
       // take. If the disposer already removed the tab this finds nothing and
       // stops.
       const label = tt('tab.diff')
+      const flat = (value) => String(value || '').replace(/\s+/g, '')
       const visible = [...document.querySelectorAll('[role=tab]')].filter((node) => node.getBoundingClientRect().width > 0)
-      if (!visible.some((node) => (node.textContent || '').trim() === label && node.getAttribute('aria-selected') === 'true')) {
+      const isDiff = (node) => flat(node.textContent).includes(flat(label))
+      if (!visible.some((node) => isDiff(node) && node.getAttribute('aria-selected') === 'true')) {
         diffViewReturn = null
         return
       }
       const back =
         visible.find((node) => (node.textContent || '').trim() === diffViewReturn) ||
-        visible.find((node) => (node.textContent || '').trim() !== label)
+        visible.find((node) => !isDiff(node))
       diffViewReturn = null
       if (back) back.click()
     }
@@ -721,10 +734,14 @@ window.__ModuleLoader__.load({
      */
     function activateDiffView(ctx, attempt = 0) {
       const label = tt('tab.diff')
-      const tabs = [...document.querySelectorAll('[role=tab]')]
-      const tab = tabs.find((node) => (node.textContent || '').trim() === label && node.getBoundingClientRect().width > 0)
+      const tabs = [...document.querySelectorAll('[role=tab]')].filter((node) => node.getBoundingClientRect().width > 0)
+      // The host decorates a view tab with an icon and a close affordance in
+      // some builds, so the label is a substring of the tab's text there and an
+      // exact comparison would never find the tab the plugin just registered.
+      const flat = (value) => String(value || '').replace(/\s+/g, '')
+      const tab = tabs.find((node) => flat(node.textContent).includes(flat(label)))
       if (!tab || tab.getAttribute('aria-selected') !== 'true') {
-        const current = tabs.find((node) => node.getAttribute('aria-selected') === 'true' && node.getBoundingClientRect().width > 0)
+        const current = tabs.find((node) => node.getAttribute('aria-selected') === 'true')
         if (current) diffViewReturn = (current.textContent || '').trim()
       }
       // The host keeps one mounted conversation container *per session* and
@@ -738,16 +755,18 @@ window.__ModuleLoader__.load({
         if (tab.getAttribute('aria-selected') !== 'true') tab.click()
         return
       }
-      // Registration is async; poll briefly (80ms × 12 ≈ 1s ceiling) so the
+      // Registration is async; poll briefly (100ms × 25 ≈ 2.5s ceiling) so the
       // usual case lands within a couple of frames.
-      if (attempt < 12) {
-        window.setTimeout(() => activateDiffView(ctx, attempt + 1), 80)
+      if (attempt < 25) {
+        window.setTimeout(() => activateDiffView(ctx, attempt + 1), 100)
         return
       }
       // A session with no messages has no conversation view ring at all. Without
       // a fallback the click would silently do nothing, so show the diff in the
       // right sidebar instead — same component, same target store.
-      if (ctx) openTab(ctx, DIFF_KIND)
+      if (ctx && !openTab(ctx, DIFF_KIND)) {
+        console.warn('[git-workbench] the diff has nowhere to go: no conversation view and no right sidebar')
+      }
     }
 
     /**
