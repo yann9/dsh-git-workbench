@@ -2,6 +2,7 @@
   "name": "@yann9/dsh-git-workbench",
   "version": "0.1.2",
   "description": "JetBrains-style Git workbench for DeepSeek Harness: local changes, hunk/line staging, side-by-side diff, commit window, commit graph, annotate.",
+  "icon": "assets/icon.png",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -12,6 +13,7 @@
   },
   "files": [
     "src",
+    "assets/icon.png",
     "locale/*.json",
     "cordis.patch.yml",
     "README.md",
