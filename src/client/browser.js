@@ -89,7 +89,7 @@ window.__ModuleLoader__.load({
               {
                 id: 'commit',
                 order: 10,
-                title: () => tt('guide.commit.title'),
+                title: () => tt('tab.commit'),
                 description: () => tt('guide.commit.desc'),
                 icon: GitIcon,
               },
@@ -105,7 +105,7 @@ window.__ModuleLoader__.load({
               {
                 id: 'log',
                 order: 11,
-                title: () => tt('guide.log.title'),
+                title: () => tt('tab.log'),
                 description: () => tt('guide.log.desc'),
                 icon: GitIcon,
               },
@@ -121,7 +121,7 @@ window.__ModuleLoader__.load({
               {
                 id: 'console',
                 order: 12,
-                title: () => tt('guide.console.title'),
+                title: () => tt('tab.console'),
                 description: () => tt('guide.console.desc'),
                 icon: GitIcon,
               },

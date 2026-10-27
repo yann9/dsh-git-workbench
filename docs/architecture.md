@@ -77,7 +77,7 @@ HTTP 层保持不变，`/dsh-git/api` 仍是唯一数据源。
 | 历史 | 同上 | 另一个页签，与提交互不隶属 |
 | 差异 | `conversation.view` 视图环（与「对话」「轨迹」并列） | 单例：第二次点文件只替换内容 |
 
-页签类型注册时声明 `guide` 条目，右侧栏 `+` 的引导页就会列出「Git 提交与暂存」「Git 历史」。
+页签类型注册时声明 `guide` 条目，右侧栏 `+` 的引导页就会列出「提交」「历史」；引导条目的标题与页签标题共用同一个词条（`tab.commit` / `tab.log` / `tab.console`），免得同一个面板在底栏和右侧栏叫两个名字。
 
 **与 dsh-better-sidebar 的共存**：那个插件自有一套底部工作台，页签只来自它自己的 `ctx.betterSidebar.registerTab` 注册表，不会枚举宿主的右侧栏类型，所以「提交 / 历史 / 控制台」要再递给它一次。注册走 `ctx.get('betterSidebar')` 的软查询——服务名不进 `dsh.client.inject`，装了才注册，没装什么也不做——并带 `bottomOnly: true`：不加这个标记它会为每个注册另铸一个原生右侧栏类型，把上面那三个顶掉。它的页签组件只拿到 `{ sessionId, cwd }` 作用域而不是宿主的 store hook，而 `ctx.sessions` 是未声明就读取直接抛错的服务，所以仓库目录取自作用域本身。
 
