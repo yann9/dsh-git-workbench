@@ -4,6 +4,62 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.6 — 2026-10-27
+
+### Added
+
+- The history table's columns can be resized. Drag the hairline on a column
+  edge to give that column the width you want, double click the hairline to
+  hand the column back to its default, and the widths stay in the browser so
+  the table comes back the way you left it. The graph column opens far wider
+  than the pane itself, which is what the bottom dock needs to show every lane
+  of a wide graph. When the pane cannot hold what all the columns ask for, the
+  column you touched last keeps the room and the others give way in
+  proportion; a column that no longer fits is clamped instead of pushing the
+  table into a horizontal scroll.
+- The history table sorts by any column, and the graph is drawn in the history
+  order (date, newest first) only — the graph states a parent-child relation
+  that another order does not have. The filter row now offers a button that
+  goes back to the history order, so a graph lost to a stray click on a
+  header is one click away from coming back.
+
+### Fixed
+
+- A delivery card's Git button opens the diff of the turn the card was built
+  from, inside the conversation. The card hands over the sequence of its own
+  `deliverables/presented` event while `workspaceChanges.summary()` only
+  answers for `workspace/changes` events, so the lookup came back empty and
+  the button was sent to the commit pane instead, which shows the working tree
+  rather than what the agent did.
+- The diff view registers itself again when the host re-declares its slot.
+  `slots.inject` disposes its effect and runs the callback a second time
+  whenever the slot declaration collapses and comes back; the callback
+  returned the disposer stored on the first run, and that disposer was already
+  dead, so no tab was registered while the module believed the view was up.
+  Every click that should open the diff was a silent no-op.
+- The commit draft goes through the model DSH has selected. An official-account
+  login registers several providers and the first one in the registry exposes
+  no catalog, so taking the first provider ended in "provider
+  deepseek-official has no model" while the chat pane worked fine. The plugin
+  config still overrides the route field by field, and a missing sign-in is
+  named instead of surfacing the raw provider error.
+- The commit prompt names the output language. The rules implied the language
+  only through their own wording, so the model answered in English under a
+  Chinese UI whenever the diff itself was English.
+- A pane has one name in both bars. The right sidebar's guide cards used
+  Git-prefixed labels while the tab strip and the bottom workbench used the
+  short ones, so the same pane had two names.
+- The right-sidebar fallback for the diff view logs the branch it takes with
+  the target's source, so a report of "it opened on the right and was empty"
+  can be traced to that one line instead of guessing between the two surfaces.
+
+### Changed
+
+- The documentation screenshots no longer carry a `-light` suffix. They only
+  ever show the light theme, so the suffix promised a second set that was
+  never taken. They are shot on a signed-in session with a real exchange and a
+  narrow right panel, and the capture conventions follow.
+
 ## 0.1.5 — 2026-10-27
 
 ### Fixed
