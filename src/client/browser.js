@@ -136,6 +136,10 @@ window.__ModuleLoader__.load({
           },
         ]
         const disposers = []
+        // A refused id never becomes free later (the type is registered for the
+        // page's life), so retrying that failure only buries the real error
+        // under 60 identical warnings.
+        let refused = false
 
         const registerAll = () => {
           const tabs = service(hostCtx, 'sidebarRightTabs')
@@ -145,6 +149,7 @@ window.__ModuleLoader__.load({
               const dispose = tabs.register(definition)
               if (typeof dispose === 'function') disposers.push(dispose)
             } catch (error) {
+              refused = /already registered/i.test(String(error?.message ?? ''))
               console.warn(`[git-workbench] tab type ${definition.kind} was refused`, error)
               return false
             }
@@ -157,9 +162,9 @@ window.__ModuleLoader__.load({
         let tries = 0
         const timer = window.setInterval(() => {
           tries += 1
-          if (registerAll() || tries > 60) {
+          if (registerAll() || refused || tries > 60) {
             window.clearInterval(timer)
-            if (tries > 60) console.warn('[git-workbench] right sidebar never became available; the Git tabs are disabled')
+            if (!refused && tries > 60) console.warn('[git-workbench] right sidebar never became available; the Git tabs are disabled')
           }
         }, 250)
 
@@ -188,6 +193,53 @@ window.__ModuleLoader__.load({
       // Fallback home for the diff: a session without messages has no
       // conversation view ring, so a file click would otherwise land nowhere.
       pane(`${DIFF_KIND}/page`, (props) => h(Safe, null, h(kit.DiffViewHost, props)))
+
+      // dsh-better-sidebar owns a second tab bar and lists only what its own
+      // registry holds, so the panes have to be offered to it as well. The
+      // lookup stays soft on purpose: that plugin is optional, and naming it in
+      // `dsh.client.inject` would break every install that does not have it.
+      // `bottomOnly` keeps the offer inside that bar — without the flag the
+      // plugin also mints a native right-sidebar type per registration, which
+      // would shadow the ones registered above.
+      const offerToBetterSidebar = (sidebar) => {
+        if (typeof sidebar?.registerTab !== 'function') return null
+        const offers = [
+          ['git-workbench:commit', 'tab.commit', 'guide.commit.desc', CommitPaneBody, 10],
+          ['git-workbench:log', 'tab.log', 'guide.log.desc', LogPaneBody, 11],
+          ['git-workbench:console', 'tab.console', 'guide.console.desc', ConsolePaneBody, 12],
+        ]
+        const disposers = []
+        for (const [id, titleKey, descriptionKey, Component, order] of offers) {
+          try {
+            const dispose = sidebar.registerTab({
+              id,
+              title: () => tt(titleKey),
+              description: () => tt(descriptionKey),
+              icon: () => h(GitIcon),
+              order,
+              single: true,
+              bottomOnly: true,
+              // That bar hands the component a session scope rather than the
+              // host slot's store hooks, and `ctx.sessions` is off-limits
+              // without an `inject` entry the plugin cannot demand. The scope
+              // already carries the session cwd — that plugin subscribes to
+              // the session list and re-renders on it — so the pane's lookup is
+              // answered straight from the scope instead of the store.
+              component: ({ scope }) => h(Component, {
+                sessionId: scope?.sessionId ?? '',
+                useSessions: scope?.sessionId
+                  ? (selector) => selector({ byId: { [scope.sessionId]: { cwd: scope.cwd ?? '' } } })
+                  : undefined,
+              }),
+            })
+            if (typeof dispose === 'function') disposers.push(dispose)
+          } catch (error) {
+            console.warn(`[git-workbench] better-sidebar refused the ${id} tab`, error)
+          }
+        }
+        return () => disposers.forEach((dispose) => dispose())
+      }
+      ctx.effect(() => serviceWhenReady(ctx, 'betterSidebar', offerToBetterSidebar), 'git-workbench: better-sidebar tabs')
 
       ctx.slots.inject('conversation.session.header.actions', () =>
         ctx.slots.register({ name: 'conversation.session.header.actions', id: 'git-workbench', order: 20 }, guarded(GitHeaderWidget)),

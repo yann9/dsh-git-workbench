@@ -79,6 +79,8 @@ HTTP 层保持不变，`/dsh-git/api` 仍是唯一数据源。
 
 页签类型注册时声明 `guide` 条目，右侧栏 `+` 的引导页就会列出「Git 提交与暂存」「Git 历史」。
 
+**与 dsh-better-sidebar 的共存**：那个插件自有一套底部工作台，页签只来自它自己的 `ctx.betterSidebar.registerTab` 注册表，不会枚举宿主的右侧栏类型，所以「提交 / 历史 / 控制台」要再递给它一次。注册走 `ctx.get('betterSidebar')` 的软查询——服务名不进 `dsh.client.inject`，装了才注册，没装什么也不做——并带 `bottomOnly: true`：不加这个标记它会为每个注册另铸一个原生右侧栏类型，把上面那三个顶掉。它的页签组件只拿到 `{ sessionId, cwd }` 作用域而不是宿主的 store hook，而 `ctx.sessions` 是未声明就读取直接抛错的服务，所以仓库目录取自作用域本身。
+
 **为什么差异不用资源（`dsh-resource://`）类型**：资源类型会按地址生成 contentId，等于每个文件一个 tab；我们要的恰恰是同一个 contentId。页面类型 + params 才是对的。
 
 **把 diff 放主区域的代价**：DSH 的全局面板是独占的，`selectPanel` 生效后会话与右侧栏一起卸载，所以拿不到"编辑器 + 工具窗口并排"的完整版式。补偿手段放在 diff 自己的头部——`3 / 5` 打开当前文件集的完整列表、`‹ ›` / `Alt+↑/↓` 切文件、`F7` 切块、`Esc` / ✕ 回会话。接口层只依赖 `openDiff` 一处，宿主将来支持分栏时替换成本很低。

@@ -632,6 +632,63 @@ test('entry applies against the real arrival contract (async chunks, no pre-mate
   }
 })
 
+test('better-sidebar is offered the panes in its own bar, and a refusal is swallowed', async () => {
+  const { registered, ReactStub } = await loadRegistry()
+  const materialize = makeMaterializer(registered, ReactStub)
+  const entry = materialize(OWNER)
+
+  const offered = []
+  const makeCtx = (get) => ({
+    slots: { register: () => () => {}, inject: () => () => {} },
+    // Only the effect under test is run; the locale and style effects need a
+    // fuller host context than this stub provides.
+    effect: (fn, label) => {
+      if (String(label ?? '').includes('better-sidebar')) fn()
+    },
+    get,
+    // cordis refuses every service the bundle did not declare in `inject`, and
+    // `sessions` is not ours to demand — reading it must never be the price of
+    // an optional integration.
+    get sessions() {
+      throw new Error('cannot get property "sessions" without inject')
+    },
+  })
+  const ctx = makeCtx((id) =>
+    id === 'betterSidebar'
+      ? {
+          registerTab: (descriptor) => {
+            offered.push(descriptor)
+            return () => {}
+          },
+        }
+      : undefined,
+  )
+  await entry.apply(ctx)
+
+  // bottomOnly keeps them in that plugin's bar: without the flag it mints a
+  // native right-sidebar type per registration and shadows our own ones.
+  assert.deepEqual(
+    offered.map((descriptor) => [descriptor.id, descriptor.bottomOnly, descriptor.single]),
+    [
+      ['git-workbench:commit', true, true],
+      ['git-workbench:log', true, true],
+      ['git-workbench:console', true, true],
+    ],
+  )
+  assert.equal(offered[0].title(), '提交')
+  // The bar hands a scope rather than the host slot's store hooks, so the pane
+  // reads its directory straight out of that scope.
+  const vnode = offered[0].component({ scope: { sessionId: 's-1', cwd: '/repo/a' } })
+  assert.equal(vnode.props.sessionId, 's-1')
+  assert.equal(vnode.props.useSessions((sessions) => sessions.byId['s-1'].cwd), '/repo/a')
+  assert.equal(offered[0].component({ scope: undefined }).props.useSessions, undefined)
+
+  const refused = []
+  const hostile = makeCtx((id) => (id === 'betterSidebar' ? { registerTab: (descriptor) => { refused.push(descriptor.id); throw new Error('unknown field') } } : undefined))
+  await entry.apply(hostile)
+  assert.deepEqual(refused, ['git-workbench:commit', 'git-workbench:log', 'git-workbench:console'], 'one refusal must not stop the others')
+})
+
 test('highlightTokens colours keywords, strings, comments, numbers and annotations', async () => {
   const { diff } = await loadClient()
   const line = '@Autowired private String name = "x" + 42; // note'
