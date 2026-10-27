@@ -105,7 +105,25 @@ Everything is editable in **Settings → Plugins → Git workbench**, or in the 
 - **Empty directory** — one-click `git init` without touching existing files.
 - **Bilingual** — follows DSH's language preference (falling back to the browser language) and switches live; git's English refusals are localized rather than dumped into the UI.
 
-The full 50+ item comparison against JetBrains is in [docs/features.md](docs/features.md); keyboard shortcuts are in the [Chinese README](README.zh.md#快捷键).
+The full 50+ item comparison against JetBrains is in [docs/features.md](docs/features.md).
+
+## Keyboard shortcuts
+
+| Action | Shortcut / gesture |
+|---|---|
+| Refresh | `F5` |
+| Commit | `Ctrl/Cmd + Enter` |
+| Focus the message box | `Ctrl/Cmd + K` |
+| Draft the message with the model | `Ctrl/Cmd + G` |
+| Previous / next file | `Alt + ↑` / `Alt + ↓`, or the `‹ n/m ›` in the diff header |
+| Previous / next hunk | `Shift + F7` / `F7`, or the `↑ Hunk ↓` toolbar — walking off either end continues into the neighbouring file |
+| Revert the current hunk | `Ctrl + Alt + R` (working-tree source, asks first) |
+| Pick a file from the current set | click the `3 / 5` in the diff header |
+| Back to the conversation from a diff | `Esc`, or the ✕ at the top right |
+| Walk the history one commit at a time | `↑` / `↓`, `Home` / `End`; `Enter` or a double-click opens the diff |
+| Multi-select commits | `Ctrl/⌘`-click, `Shift`-click for a range, `Ctrl+A` for everything visible, `Esc` to clear |
+| Recall a previous message in an empty box | `↑` / `↓` |
+| Stage selected lines | click the `+` / `−` at the line head to select, then **Stage selected lines** |
 
 ## Development
 

@@ -132,7 +132,7 @@ dsh plugin --profile web remove @yann9/dsh-git-workbench
 | AI 生成提交信息 | `Ctrl/Cmd + G` |
 | 上一个 / 下一个文件 | `Alt + ↑` / `Alt + ↓`，或头部 `‹ n/m ›` |
 | 上一个 / 下一个差异块 | `Shift + F7` / `F7`，或工具栏 `↑ 差异 ↓`（走到头自动进相邻文件） |
-| 还原当前差异块 | `Ctrl/Cmd + Alt + R`（工作区来源，先确认） |
+| 还原当前差异块 | `Ctrl + Alt + R`（工作区来源，先确认） |
 | 当前文件集里挑文件 | 点头部 `3 / 5` |
 | 从差异回到会话 | `Esc` 或右上角 ✕ |
 | 历史页逐条翻提交 | `↑` / `↓`、`Home` / `End`，`Enter` 或双击打开差异 |
