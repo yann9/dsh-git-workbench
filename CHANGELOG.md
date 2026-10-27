@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.3 — 2026-10-27
+
+### Added
+
+- The panes now appear in **dsh-better-sidebar's own tab bar** as well. That
+  plugin enumerates only its own `registerTab` registry, so 提交 / 历史 / 控制台
+  were invisible in its bottom workbench; they are offered to it through a soft
+  service lookup (the plugin stays entirely optional) with `bottomOnly`, which
+  keeps it from minting a competing native right-sidebar type.
+- A marketplace icon (`assets/icon.png`, 512px, with the SVG source beside it),
+  the `screenshots.json` list the curated catalog resolves from this repository,
+  and `market/yann9__dsh-git-workbench.yml` — the entry to submit upstream.
+
+### Fixed
+
+- Every operation that writes a commit — merge, rebase, reword, cherry-pick,
+  revert and their continue/resume paths — now preflights the author identity
+  and offers to set it, instead of letting git fail in English.
+- The remaining un-mapped git refusals (a branch with no upstream, a stale
+  `index.lock`, a remote wanting credentials, a detached HEAD, a branch held by
+  another worktree, squashing the first kept commit) answer in the UI language.
+- A delivery card whose turn snapshot the host has dropped now says what went,
+  why, and which click still shows the change, rather than failing the diff page.
+
+### Removed
+
+- The dark-theme screenshot set. The workbench follows the host theme and has no
+  switch of its own, so those ten files documented nothing new.
+
 ## 0.1.2 — 2026-10-26
 
 Documentation only; the plugin itself is unchanged.
