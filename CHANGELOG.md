@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.5 — 2026-10-27
+
+### Fixed
+
+- The work-tree watcher is attached before the git-dir probe instead of after
+  it. For the tens of milliseconds `resolveGitDir` spent shelling out to git,
+  the caller already held its disposer while no watch existed, so an edit made
+  in another tool in that window never reached connected clients. The recursive
+  work-tree watch needs no probe result, so it now goes on synchronously; the
+  `.git` targets still wait for the resolved directory, and a dispose that
+  lands mid-probe no longer leaves watchers behind.
+
 ## 0.1.4 — 2026-10-27
 
 ### Changed
