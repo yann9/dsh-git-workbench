@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { normalizeTurnDiff, readTurn } from '../src/git/turns.js'
+import { normalizeTurnDiff, readTurn, resolvePresentedTurn } from '../src/git/turns.js'
 import { draftCommitMessage, heuristic } from '../src/llm/commit-message.js'
 
 /** Minimal stand-in for the harness's `ctx.workspaceChanges` service. */
@@ -88,6 +88,58 @@ test('readTurn explains a missing turn instead of failing silently', async () =>
   await assert.rejects(() => readTurn(ctx, { session: 'session-1', seq: '42' }), /no longer available/)
   await assert.rejects(() => readTurn({ get: () => undefined }, { session: 's', seq: '1' }), /does not expose workspace changes/)
   await assert.rejects(() => readTurn(fakeCtx(SUMMARY, []), { seq: '1' }), /missing session id/)
+})
+
+const CARD_EVENTS = [
+  { seq: 40, type: 'workspace/changes', data: { turn: 3 } },
+  { seq: 41, type: 'workspace/changes', data: { turn: 2 } },
+  // The later announcement for the same turn wins.
+  { seq: 44, type: 'workspace/changes', data: { turn: 3 } },
+  { seq: 50, type: 'deliverables/presented', data: { turn: 3, callId: 'call-1', files: [{ path: 'src/Button.js' }, { path: 'C:\\repo\\src\\store.js' }] } },
+]
+
+/** @param {Map<number, any>} summaries - the host's live snapshots, by event seq. */
+function cardCtx(summaries) {
+  return {
+    get(name) {
+      if (name === 'workspaceChanges') {
+        return {
+          summary: (_session, seq) => summaries.get(seq),
+          diff: async (_session, _seq, index) => (index === 0 ? TEXT_DIFF : { kind: 'text', before: false, after: true, hunks: [] }),
+        }
+      }
+      if (name === 'sessions') return { get: () => ({ snapshotEvents: () => CARD_EVENTS }) }
+      return undefined
+    },
+  }
+}
+
+test('a delivery card resolves to the turn snapshot behind its own event', async () => {
+  const turn = await readTurn(cardCtx(new Map([[44, SUMMARY]])), { session: 'session-1', seq: '50', index: '1' })
+  assert.equal(turn.seq, 44)
+  // The card's second file is the summary's first: matching paths, not numbers.
+  assert.equal(turn.focus, 0)
+  assert.equal(turn.files.length, 2)
+})
+
+test('an unmatchable card index still opens the turn, at its first file', async () => {
+  const turn = await readTurn(cardCtx(new Map([[44, SUMMARY]])), { session: 'session-1', seq: '50', index: '9' })
+  assert.equal(turn.seq, 44)
+  assert.equal(turn.focus, 0)
+})
+
+test('resolvePresentedTurn bridges the two event sequences', () => {
+  assert.deepEqual(resolvePresentedTurn(CARD_EVENTS, 50, 1), { seq: 44, path: 'C:\\repo\\src\\store.js' })
+  // A turned index or another event type resolves nothing.
+  assert.deepEqual(resolvePresentedTurn(CARD_EVENTS, 50, 7), { seq: 44, path: '' })
+  assert.equal(resolvePresentedTurn(CARD_EVENTS, 41, 0), null)
+})
+
+test('a card whose snapshot is gone still fails with the localized explanation', async () => {
+  await assert.rejects(
+    () => readTurn(cardCtx(new Map()), { session: 'session-1', seq: '50', index: '0' }),
+    /no longer available/,
+  )
 })
 
 test('commit message fallback stays conventional and specific', () => {

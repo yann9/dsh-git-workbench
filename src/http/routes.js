@@ -287,6 +287,9 @@ async function handleApi(req, res, route, url, service, options) {
         send(await readTurn(options.ctx, {
           session: url.searchParams.get('session') ?? '',
           seq: url.searchParams.get('seq') ?? '',
+          // Delivery cards count their own file list; the snapshot counts the
+          // turn's. The server bridges the two, so it needs both coordinates.
+          index: url.searchParams.get('index') ?? '',
         }))
         return
       }

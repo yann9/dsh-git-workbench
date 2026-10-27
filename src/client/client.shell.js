@@ -960,15 +960,11 @@ window.__ModuleLoader__.load({
         onClick: () => {
           try {
             const url = new URL(props.actionUrl, 'http://dsh.local')
-            // A delivery card hands over the coordinates of its
-            // `deliverables/presented` event, while the host only answers a turn
-            // snapshot for a `workspace/changes` one — that seq can never be
-            // found. The working tree holds the same file's change, so this
-            // button goes to the commit pane instead of an error page.
-            if (url.pathname.endsWith('present.open')) {
-              openTab(kit.ctx, COMMIT_KIND)
-              return
-            }
+            // The review card and the delivery card number different events —
+            // `workspace/changes` versus `deliverables/presented` — but both
+            // name a turn, and the turn service bridges the pair on the server
+            // side. Both open the same in-conversation diff instead of sending
+            // one of them off to the commit pane.
             const params = url.searchParams
             const session = params.get('sessionId') ?? params.get('session') ?? ''
             const seq = params.get('seq') ?? ''

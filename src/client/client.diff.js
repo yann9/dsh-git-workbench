@@ -828,7 +828,7 @@ window.__ModuleLoader__.load({
               const at = loaded.files.findIndex((file) => file.path === target.file)
               setIndex(at >= 0 ? at : 0)
             } else if (source === 'turn') {
-              const loaded = await Api.turn(dir, target.session, target.seq)
+              const loaded = await Api.turn(dir, target.session, target.seq, target.index)
               if (!alive) return
               setTurn(loaded)
               const list = (loaded.files ?? []).map((file) => ({
@@ -840,9 +840,10 @@ window.__ModuleLoader__.load({
                 deletions: file.deletions,
               }))
               setEntries(list)
-              // The card's index is the file's position in the turn summary,
-              // not this filtered list's offset.
-              const wanted = Number(target.index)
+              // `focus` is the server's translation of the card's index into
+              // this summary's file order; without it a delivery card would
+              // open whichever file happens to share its number.
+              const wanted = Number.isSafeInteger(loaded.focus) ? loaded.focus : Number(target.index)
               const at = Number.isSafeInteger(wanted) ? list.findIndex((entry) => entry.index === wanted) : -1
               setIndex(at >= 0 ? at : 0)
               if (at > 0) focusTurnRef.current = at

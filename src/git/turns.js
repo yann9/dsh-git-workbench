@@ -20,22 +20,83 @@
  */
 
 /**
+ * A delivery card names its own `deliverables/presented` event, while the turn
+ * snapshot is keyed by the turn's `workspace/changes` event — different event
+ * sequences over the same log. Bridge them so the card can still open the
+ * snapshot it was built from.
+ * @param {readonly any[]} events - the session log, in order.
+ * @param {number} seq - delivered event sequence from the card.
+ * @param {number} index - card file index within that event.
+ * @returns {{ seq: number, path: string } | null} the changes event and the file it declared.
+ */
+export function resolvePresentedTurn(events, seq, index) {
+  const presented = events.find((event) => event?.type === 'deliverables/presented' && Number(event.seq) === seq)
+  const turn = presented?.data?.turn
+  if (!Number.isSafeInteger(turn)) return null
+  let changes = null
+  for (const event of events) {
+    if (event?.type !== 'workspace/changes' || event.data?.turn !== turn) continue
+    // The latest announcement for a turn replaces earlier ones.
+    if (!changes || Number(event.seq) > Number(changes.seq)) changes = event
+  }
+  if (!changes) return null
+  const files = presented.data.files
+  const declared = Array.isArray(files) ? files[index]?.path : ''
+  return { seq: Number(changes.seq), path: typeof declared === 'string' ? declared : '' }
+}
+
+/**
+ * Read the live session log without demanding a service this bundle never
+ * declared: `sessions` is optional here, and reading it the wrong way throws.
  * @param {any} ctx
- * @param {{ session?: string, seq?: string | number }} input
- * @returns {Promise<{ turn: number | null, session: string, seq: number, files: TurnFile[], total: number }>}
+ * @param {string} session
+ * @returns {readonly any[]}
+ */
+function sessionEvents(ctx, session) {
+  let sessions
+  try {
+    sessions = ctx?.get?.('sessions')
+  } catch {
+    return []
+  }
+  let live
+  try {
+    live = sessions?.get?.(session)
+    const snap = typeof live?.snapshotEvents === 'function' ? live.snapshotEvents() : []
+    return snap
+  } catch {
+    return []
+  }
+}
+
+/**
+ * @param {any} ctx
+ * @param {{ session?: string, seq?: string | number, index?: string | number }} input
+ * @returns {Promise<{ turn: number | null, session: string, seq: number, focus: number, files: TurnFile[], total: number }>}
  */
 export async function readTurn(ctx, input) {
   const session = String(input.session ?? '')
-  const seq = Number(input.seq)
+  const requested = Number(input.seq)
   if (!session) throw new Error('missing session id')
-  if (!Number.isSafeInteger(seq) || seq < 0) throw new Error('missing or invalid event sequence')
+  if (!Number.isSafeInteger(requested) || requested < 0) throw new Error('missing or invalid event sequence')
 
   const changes = ctx?.get?.('workspaceChanges')
   if (!changes || typeof changes.summary !== 'function') {
     throw new Error('this harness build does not expose workspace changes (workspaceChanges service missing)')
   }
 
-  const summary = changes.summary(session, seq)
+  const cardIndex = Number.parseInt(String(input.index ?? ''), 10)
+  let seq = requested
+  let focusPath = ''
+  let summary = changes.summary(session, seq)
+  if (!summary) {
+    const resolved = resolvePresentedTurn(sessionEvents(ctx, session), requested, Number.isSafeInteger(cardIndex) ? cardIndex : -1)
+    if (resolved) {
+      seq = resolved.seq
+      focusPath = resolved.path
+      summary = changes.summary(session, seq)
+    }
+  }
   if (!summary) {
     throw new Error('this turn is no longer available: summaries live only while the session lives in this host process')
   }
@@ -60,13 +121,35 @@ export async function readTurn(ctx, input) {
     })
   }
 
+  // The card's index counts its own presented list, so land on the same path
+  // in the turn summary instead of trusting the number.
+  let focus = 0
+  if (focusPath) {
+    const wanted = slashPath(focusPath)
+    let at = files.findIndex((file) => slashPath(file.path) === wanted || slashPath(file.display) === wanted)
+    if (at < 0) {
+      const leaf = wanted.slice(wanted.lastIndexOf('/') + 1)
+      at = files.findIndex((file) => slashPath(file.path).split('/').pop() === leaf)
+    }
+    if (at >= 0) focus = at
+  }
+
   return {
     turn: summary.turn ?? null,
     session,
     seq,
+    focus,
     total: summary.total ?? files.length,
     files,
   }
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function slashPath(value) {
+  return String(value).replaceAll('\\', '/').replace(/^\.\//, '')
 }
 
 /**
