@@ -37,7 +37,7 @@ It also plugs into DSH surfaces you already use: the branch chip in the session 
 | **Conflict resolution** | **Stash (name + partial files)** |
 | ![Conflict](docs/assets/conflict-en-light.png) | ![Stash dialog](docs/assets/stash-dialog-en-light.png) |
 
-Dark-theme versions live next to them in [docs/assets](docs/assets) (`*-en-dark.png`). The Chinese-UI set is the same files without the `-en` infix (`*-light.png` / `*-dark.png`), used by [README.zh.md](README.zh.md).
+The Chinese-UI set is the same files without the `-en` infix, used by [README.zh.md](README.zh.md). The workbench follows the host theme and has no theme switch of its own, so dark mode needs no separate set.
 
 ## Install
 

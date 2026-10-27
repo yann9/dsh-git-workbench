@@ -39,7 +39,7 @@ DSH 的右侧栏是可拖动的页签区（能拖到别的面板、拆成第二�
 | **冲突三方视图** | **储藏（命名 + 部分文件）** |
 | ![冲突视图](docs/assets/conflict-light.png) | ![储藏弹窗](docs/assets/stash-dialog-light.png) |
 
-深色主题完全跟随宿主，没有自己的主题开关：以上四张的深色版本在 [docs/assets](docs/assets) 里同目录（`*-dark.png`）。同一组界面的英文版截图也在同目录（`*_en` 前缀，即 `*-en-light.png` / `*-en-dark.png`），[英文 README](README.md) 用的是那套。
+深色主题完全跟随宿主，没有自己的主题开关，因此不再单独保留深色截图。同一组界面的英文版截图也在同目录（`*-en-light.png`），[英文 README](README.md) 用的是那套。
 
 ## 安装
 
