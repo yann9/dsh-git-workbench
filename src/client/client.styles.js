@@ -527,10 +527,10 @@ window.__ModuleLoader__.load({
    and folds the rest into a "+N" chip, so nothing is ever cut in half. */
 .gwb-logrow .gwb-refs { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 100%; }
 .gwb-logrow .gwb-subject-text { flex: 1 1 auto; min-width: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gwb-log-graph { width: 56px; flex: none; overflow: hidden; }
-.gwb-logrow .gwb-author { color: var(--gwb-faint); font-size: 11px; flex: 0 0 92px; overflow: hidden; text-overflow: ellipsis; }
-.gwb-logrow .gwb-date { color: var(--gwb-faint); font-size: 11px; flex: 0 0 76px; font-variant-numeric: tabular-nums; }
-.gwb-logrow .gwb-hash { color: var(--gwb-faint); font-size: 10px; flex: 0 0 66px; overflow: hidden; text-overflow: ellipsis; font-family: var(--gwb-mono, monospace); }
+.gwb-log-graph { width: var(--gwb-col-graph, 56px); flex: none; overflow: hidden; }
+.gwb-logrow .gwb-author { color: var(--gwb-faint); font-size: 11px; flex: 0 0 var(--gwb-col-author, 92px); overflow: hidden; text-overflow: ellipsis; }
+.gwb-logrow .gwb-date { color: var(--gwb-faint); font-size: 11px; flex: 0 0 var(--gwb-col-date, 76px); font-variant-numeric: tabular-nums; }
+.gwb-logrow .gwb-hash { color: var(--gwb-faint); font-size: 10px; flex: 0 0 var(--gwb-col-hash, 66px); overflow: hidden; text-overflow: ellipsis; font-family: var(--gwb-mono, monospace); }
 /* The table header: it sorts the log the way the IDE's log does, so the labels
    have to sit exactly over the cells they name. */
 .gwb-logcols {
@@ -538,19 +538,63 @@ window.__ModuleLoader__.load({
   font-size: 10px; color: var(--gwb-faint); background: var(--gwb-panel);
   border-bottom: 1px solid var(--gwb-border); user-select: none;
 }
+/* The header cell is the column, not a button: the sort control and the
+   drag edge are two siblings inside it, so both can take the keyboard. */
 .gwb-logcols-cell {
   display: flex; align-items: center; gap: 4px; height: 100%; padding: 0;
-  background: none; border: 0; font: inherit; color: inherit; cursor: pointer;
-  overflow: hidden; white-space: nowrap;
+  color: inherit; cursor: pointer; min-width: 0;
+  /* The cell clips nothing itself: the label ellipsises, and the drag edge
+     has to reach past the cell into the gap. */
+  overflow: visible; white-space: nowrap;
+  /* The column edge is drawn, not implied: a hairline that says where one
+     column ends and the next begins. The drag grip paints over it. */
+  background-image: linear-gradient(var(--gwb-col-sep, color-mix(in srgb, var(--gwb-text) 18%, transparent)), var(--gwb-col-sep, color-mix(in srgb, var(--gwb-text) 18%, transparent)));
+  background-repeat: no-repeat; background-position: right center; background-size: 1px 14px;
+}
+.gwb-logcols-sort {
+  display: flex; align-items: center; gap: 4px; min-width: 0; height: 100%;
+  flex: 1 1 auto; padding: 0; background: none; border: 0; font: inherit; color: inherit; cursor: pointer;
+  overflow: hidden;
 }
 .gwb-logcols-cell:hover { color: var(--gwb-text); }
 .gwb-logcols-cell.on { color: var(--gwb-text); font-weight: 600; }
-.gwb-logcols-text { overflow: hidden; text-overflow: ellipsis; }
-.gwb-logcols-arrow { font-size: 8px; line-height: 1; }
+.gwb-logcols-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gwb-logcols-arrow { font-size: 8px; line-height: 1; flex: none; }
 .gwb-logcols .gwb-subject { flex: 1 1 auto; min-width: 0; }
-.gwb-logcols .gwb-author { flex: 0 0 92px; }
-.gwb-logcols .gwb-date { flex: 0 0 76px; }
-.gwb-logcols .gwb-hash { flex: 0 0 66px; }
+/* Once the message column has a width of its own it keeps it: the row ends
+   where the columns end, and the free space waits on the right. */
+.gwb-log-list[data-custom-subject="1"] .gwb-logrow .gwb-subject,
+.gwb-log-list[data-custom-subject="1"] .gwb-logcols .gwb-subject { flex: 0 1 var(--gwb-col-subject); }
+.gwb-log-list[data-custom-subject="1"] .gwb-logrow .gwb-rowmore,
+.gwb-log-list[data-custom-subject="1"] .gwb-logcols-more { margin-left: auto; }
+/* Matches the row's trailing commit-menu button, margins included. */
+.gwb-logcols-more { flex: none; width: 20px; margin-left: -2px; margin-right: -4px; }
+.gwb-logcols .gwb-author { flex: 0 0 var(--gwb-col-author, 92px); }
+.gwb-logcols .gwb-date { flex: 0 0 var(--gwb-col-date, 76px); }
+.gwb-logcols .gwb-hash { flex: 0 0 var(--gwb-col-hash, 66px); }
+/* Every header cell owns a drag edge: the graph clips at its default width
+   once the history has more lanes, and a long author deserves the room the
+   user gives it. The edge sits in the gap between two cells. */
+.gwb-logcols-cell, .gwb-logcols .gwb-log-graph { position: relative; }
+/* The graph header cell has no glyph of its own to give it height, so it
+   stretches instead: a zero-height cell would leave the drag edge unhittable. */
+.gwb-logcols .gwb-log-graph { overflow: visible; align-self: stretch; cursor: default; }
+.gwb-colresize { position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; cursor: col-resize; z-index: 2; }
+/* The grip paints its own line over the column hairline, so the place to
+   take hold of says so the moment the pointer lands on it. */
+.gwb-colresize::after { content: ''; position: absolute; top: 4px; bottom: 4px; left: 3px; width: 1px; background: transparent; }
+.gwb-colresize:hover::after, .gwb-colresize.on::after {
+  background: var(--gwb-accent); width: 2px; left: 2.5px;
+}
+/* The graph only exists in the history order, so losing it looks like a bug.
+   This chip says what happened and puts the history order back in one click. */
+.gwb-graphhint {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  height: 22px; padding: 0 8px; border: 0; border-radius: 4px;
+  background: var(--gwb-accent-soft); color: var(--gwb-accent-ink);
+  font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer;
+}
+.gwb-graphhint:hover { background: var(--gwb-accent); color: var(--gwb-on-hue); }
 .gwb-ref { padding: 0 5px; height: 18px; line-height: 18px; border-radius: 3px; background: var(--gwb-accent-soft); color: var(--gwb-accent-ink); font-size: 11px; font-weight: 500; flex: 0 0 auto; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gwb-ref.head { background: var(--gwb-accent); color: var(--gwb-on-hue); }
 /* The "+N" chip stands for the labels that did not fit — it says how many,
@@ -1296,7 +1340,7 @@ window.__ModuleLoader__.load({
 .gwb-log-split.nosel { flex-direction: column; }
 .gwb-log-split.nosel .gwb-log-list { flex: 1 1 auto; min-height: 0; border-right: 0; }
 .gwb-log-split.nosel .gwb-log-detail { flex: none; }
-.gwb[data-compact="1"] .gwb-log-graph { width: 30px; }
+.gwb[data-compact="1"] .gwb-log-graph { width: var(--gwb-col-graph, 30px); }
 /* A narrow list column cannot hold every column: the author gives way before
    the subject does, and the header drops it with it so the two stay aligned.
    The list's own width decides — a full-width list in a narrow pane still

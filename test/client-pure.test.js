@@ -644,6 +644,55 @@ test('the list-mode store syncs every pane and survives a reload', async () => {
   assert.equal(core.listModeStore.value, 'flat')
 })
 
+test('the log width store keeps only dragged, clamped widths', async () => {
+  const { registered, ReactStub, sandboxModules } = await loadRegistry()
+  const materialize = makeMaterializer(registered, ReactStub)
+  const core = materialize(`${OWNER}/client.core.js`)
+  const seen = []
+  core.logWidthStore.subscribe(() => seen.push({ ...core.logWidthStore.value }))
+
+  core.logWidthStore.set('graph', 120)
+  core.logWidthStore.set('graph', 120) // idempotent: no second notification
+  assert.equal(core.logWidthStore.value.graph, 120)
+
+  // Clamped to the column's own floor and ceiling.
+  core.logWidthStore.set('author', 20)
+  core.logWidthStore.set('date', 9999)
+  assert.equal(core.logWidthStore.value.author, 48)
+  assert.equal(core.logWidthStore.value.date, 300)
+
+  // The message column has no stylesheet width, so any width it gets is one
+  // the user asked for and is kept as is.
+  core.logWidthStore.set('subject', 300)
+  assert.equal(core.logWidthStore.value.subject, 300)
+
+  // A width that lands back on the stylesheet default is a reset, and the
+  // unknown key is ignored outright.
+  core.logWidthStore.set('graph', 56)
+  core.logWidthStore.set('nope', 100)
+  assert.equal('graph' in core.logWidthStore.value, false)
+  assert.equal('nope' in core.logWidthStore.value, false)
+
+  // A null width is the reset the double click on the drag edge sends.
+  core.logWidthStore.set('subject', null)
+  assert.equal('subject' in core.logWidthStore.value, false)
+
+  assert.deepEqual(Array.from(seen), [
+    { graph: 120 },
+    { graph: 120, author: 48 },
+    { graph: 120, author: 48, date: 300 },
+    { graph: 120, author: 48, date: 300, subject: 300 },
+    { author: 48, date: 300, subject: 300 },
+    { author: 48, date: 300 },
+  ])
+  assert.deepEqual(JSON.parse(sandboxModules.localStorage.getItem('dsh-git.logWidths')), { author: 48, date: 300 })
+
+  // The column the user touched last is the one whose width counts the most
+  // when the pane is too small to give every column what it asks for.
+  assert.equal(core.logWidthStore.lead, 'subject')
+  assert.equal(sandboxModules.localStorage.getItem('dsh-git.logWidths.lead'), 'subject')
+})
+
 test('entry applies against the real arrival contract (async chunks, no pre-materialisation)', async () => {
   // Regression: chunk scripts only arrive via require.async — a synchronous
   // require from the entry factory ("missed the module table") blew up boot.

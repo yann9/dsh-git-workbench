@@ -96,7 +96,7 @@ Everything is editable in **Settings → Plugins → Git workbench**, or in the 
 - **Staging** — whole file, hunk (cropped patch → `git apply --cached`), or individual lines; unstaging is equally precise. Commits always use the index.
 - **Reading diffs** — side-by-side / unified, dual line numbers, word-level highlights, ignore-whitespace (read-only), context folding, `‹ n/m ›` file navigation and `F7` hunk navigation.
 - **Committing** — `Ctrl+Enter`, AI draft, `↑` to recall previous messages, amend, changelists, and before-commit checks taken from the repo's own `package.json` scripts.
-- **History** — DAG graph, sortable columns, group by branch/author/date, structured filters (`author:` `message:` `hash:` `tag:` `branch:` `date:`), multi-select for batch cherry-pick / revert.
+- **History** — DAG graph, sortable and resizable columns, group by branch/author/date, structured filters (`author:` `message:` `hash:` `tag:` `branch:` `date:`), multi-select for batch cherry-pick / revert.
 - **Rewriting history** — interactive rebase (pick/squash/fixup/drop), reword, undo commit, cherry-pick, revert, soft/hard reset — all behind explicit confirmations.
 - **Branches & remotes** — switch/create/rename, `↑N ↓N` ahead-behind badges, set/unset upstream, compare, rebase onto, fetch/pull/push (Pick a remote on first push), manage remotes.
 - **Conflicts & sequencer** — separate unmerged group, three-way view with per-block choices or a hand-written merged result, status bar with continue/abort while a merge, cherry-pick or rebase is paused.

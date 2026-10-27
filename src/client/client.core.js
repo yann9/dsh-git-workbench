@@ -474,6 +474,123 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Column widths of the log table, as the user dragged them. Only a width
+     * that differs from the stylesheet default is stored: a missing key leaves
+     * the default in charge, which is also what lets the compact pane keep its
+     * narrow graph until someone asks for more room.
+     *
+     * The subject has no fixed width of its own — it takes what the other
+     * columns leave. Once the user drags it, it keeps the width they gave it;
+     * the upper bounds are wide enough that the pane, not the number, is what
+     * stops a column.
+     */
+    const STORED_WIDTHS_KEY = 'dsh-git.logWidths'
+    const STORED_LEAD_KEY = 'dsh-git.logWidths.lead'
+    const LOG_WIDTH_DEFAULTS = { graph: 56, author: 92, date: 76, hash: 66 }
+    const LOG_WIDTH_LIMITS = {
+      graph: [24, 1200],
+      subject: [40, 2000],
+      author: [48, 400],
+      date: [48, 300],
+      hash: [48, 260],
+    }
+    const LOG_WIDTH_KEYS = ['graph', 'subject', 'author', 'date', 'hash']
+
+    function clampLogWidth(key, value) {
+      const width = Math.round(Number(value))
+      if (!Number.isFinite(width)) return null
+      const [min, max] = LOG_WIDTH_LIMITS[key]
+      return Math.max(min, Math.min(max, width))
+    }
+
+    function sameLogWidths(left, right) {
+      return LOG_WIDTH_KEYS.every((key) => left[key] === right[key])
+    }
+
+    const logWidthStore = {
+      value: (() => {
+        const fallback = {}
+        try {
+          const stored = JSON.parse(String(localStorage.getItem(STORED_WIDTHS_KEY) ?? 'null'))
+          if (!stored || typeof stored !== 'object') return fallback
+          const value = {}
+          for (const key of LOG_WIDTH_KEYS) {
+            const width = clampLogWidth(key, stored[key])
+            if (width !== null && width !== LOG_WIDTH_DEFAULTS[key]) value[key] = width
+          }
+          return value
+        } catch {
+          return fallback
+        }
+      })(),
+      /**
+       * The column the user touched last. The pane is too small to give every
+       * column what it asks for, so the one in the hand wins the room and the
+       * others step back.
+       */
+      lead: (() => {
+        try {
+          const key = String(localStorage.getItem(STORED_LEAD_KEY) ?? '')
+          return LOG_WIDTH_KEYS.includes(key) ? key : null
+        } catch {
+          return null
+        }
+      })(),
+      listeners: new Set(),
+      /**
+       * Persist one dragged width. `null` — or a width that lands back on the
+       * default — is a reset, so the stylesheet owns the column again.
+       */
+      set(key, width) {
+        if (!LOG_WIDTH_KEYS.includes(key)) return
+        const clamped = width === null ? null : clampLogWidth(key, width)
+        if (width !== null && clamped === null) return
+        const next = { ...logWidthStore.value }
+        if (clamped === null || clamped === LOG_WIDTH_DEFAULTS[key]) delete next[key]
+        else next[key] = clamped
+        const resized = !sameLogWidths(next, logWidthStore.value)
+        // The column the user is working on is the one whose width counts the
+        // most when the pane cannot give every column what it asks for.
+        const claimed = logWidthStore.lead !== key
+        if (!resized && !claimed) return
+        logWidthStore.value = next
+        logWidthStore.lead = key
+        if (resized) {
+          if (Object.keys(next).length === 0) localStorage.removeItem(STORED_WIDTHS_KEY)
+          else localStorage.setItem(STORED_WIDTHS_KEY, JSON.stringify(next))
+        }
+        try {
+          localStorage.setItem(STORED_LEAD_KEY, key)
+        } catch {
+          // A storage that refuses writes only costs us the memory of the lead.
+        }
+        for (const listener of logWidthStore.listeners) listener()
+      },
+      subscribe(listener) {
+        logWidthStore.listeners.add(listener)
+        return () => logWidthStore.listeners.delete(listener)
+      },
+      snapshot() {
+        return logWidthStore.value
+      },
+      leadSnapshot() {
+        return logWidthStore.lead
+      },
+    }
+
+    function useLogWidths() {
+      return useSyncExternalStore(logWidthStore.subscribe, logWidthStore.snapshot, logWidthStore.snapshot)
+    }
+
+    /**
+     * The column the user touched last. It is the one whose width the pane
+     * keeps, when the columns together ask for more room than there is.
+     */
+    function useLogWidthLead() {
+      return useSyncExternalStore(logWidthStore.subscribe, logWidthStore.leadSnapshot, logWidthStore.leadSnapshot)
+    }
+
+    /**
      * The IDE's "Show History for File" jumps from a file row to the History
      * tab with that file already filtered. Tab payloads are not forwarded by
      * the host, so the hand-off rides on this store instead.
@@ -980,6 +1097,12 @@ window.__ModuleLoader__.load({
       logSortStore,
       useLogColumns,
       logColumnsStore,
+      useLogWidths,
+      useLogWidthLead,
+      logWidthStore,
+      LOG_WIDTH_LIMITS,
+      LOG_WIDTH_DEFAULTS,
+      LOG_WIDTH_KEYS,
       useFileHistory,
       fileHistoryStore,
       useCompare,

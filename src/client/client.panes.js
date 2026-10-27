@@ -9,7 +9,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
-    const { Api, baseName, collectPaths, compareStore, config, countFiles, fileHistoryStore, listModeStore, LOG_KIND, logColumnsStore, logGroupStore, logSortStore, openDiff, openTab, preloadedCommits, runNetOp, statusColor, switchBranch, useCompact, useCompare, useFileHistory, useListMode, useLogColumns, useLogGroup, useLogSort, useRepoChanges, useSessionDirectory, walkFileTree } = kit
+    const { Api, baseName, collectPaths, compareStore, config, countFiles, fileHistoryStore, listModeStore, LOG_KIND, logColumnsStore, logGroupStore, logSortStore, logWidthStore, LOG_WIDTH_DEFAULTS, LOG_WIDTH_KEYS, LOG_WIDTH_LIMITS, useCompact, useCompare, useFileHistory, useListMode, useLogColumns, useLogGroup, useLogSort, useLogWidthLead, useLogWidths, openDiff, openTab, preloadedCommits, runNetOp, statusColor, switchBranch, useRepoChanges, useSessionDirectory, walkFileTree } = kit
     const { Badge, FilePath, FolderIcon, GitIcons, IconBtn, Menu, MenuRow, askIdentity, copyText, iconMarkup, missingIdentity, openContextMenu, openNamePrompt, reportError, showCheckFailure, showConfirm, showRebaseDialog, showRewordDialog, showToast, withIdentity } = require('@yann9/dsh-git-workbench/client.ui.js')
     const { GitOperationsMenu, sessionBranchName, busyLabel } = require('@yann9/dsh-git-workbench/client.shell.js')
     const { isZh, localizeError, tt } = require('@yann9/dsh-git-workbench/client.i18n.js')
@@ -375,6 +375,17 @@ window.__ModuleLoader__.load({
     const LOG_REF_MAX = 220
     const LOG_REF_CUT_MIN = 40
     const LOG_REF_SLACK = 6
+
+    /** The gap between two cells of the log table, and its side padding. */
+    const LOG_GAP = 8
+    const LOG_PAD = 16
+    /** The commit menu button every row ends with. */
+    const LOG_ROW_MORE = 20
+    /** How narrow the message column is allowed to get. */
+    const LOG_SUBJECT_MIN = 40
+    /** Below these the table drops the author, then the hash. */
+    const LOG_NARROW_WIDTH = 460
+    const LOG_TIGHT_WIDTH = 340
 
     /**
      * How many branch labels a row can spell out in the room it has. A label
@@ -2207,10 +2218,36 @@ window.__ModuleLoader__.load({
   // The list column has its own width, and a narrow one cannot hold every
   // column: the author drops out rather than squeezing the subject away.
   const listRef = useRef(null)
-  useNarrowColumn(listRef, 460, 340)
+  useNarrowColumn(listRef, LOG_NARROW_WIDTH, LOG_TIGHT_WIDTH)
   // How wide the subject cell is: the row needs it to know how many branch
   // labels it can spell out without squeezing the message away.
   const [subjectW, measureSubject] = useSubjectWidth(listRef)
+  // How wide the list itself is: a dragged column has to fit the pane it is
+  // in, and the pane is what changes when the user drags the sidebar.
+  const [listWidth, setListWidth] = useState(0)
+  useEffect(() => {
+    const list = listRef.current
+    if (!list || typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver((entries) => {
+      const width = Math.round(entries[0].contentRect.width)
+      setListWidth((previous) => (previous === width ? previous : width))
+    })
+    observer.observe(list)
+    return () => observer.disconnect()
+  }, [])
+  // The columns the narrow layout drops take no room, so the widths have to
+  // know about it: the stylesheet hides them, the room calculation skips them.
+  const narrow = listWidth > 0 && listWidth < LOG_NARROW_WIDTH
+  const tight = listWidth > 0 && listWidth < LOG_TIGHT_WIDTH
+  // The widths the user dragged, handed to the table as CSS variables so the
+  // header and every row keep the same edges without repeating a style.
+  const widths = useLogWidths()
+  // The column the user touched last. The pane cannot give every column what
+  // it asks for, so this one gets the room and the others step back.
+  const leadKey = useLogWidthLead()
+  // A drag ends on the header cell, which would otherwise sort the table when
+  // the mouse comes back up. The timestamp outlives the click that follows it.
+  const dragGuard = useRef(0)
 
       const load = useCallback(async () => {
         const wanted = dir
@@ -2694,11 +2731,126 @@ window.__ModuleLoader__.load({
       const sorted = useMemo(() => sortLogEntries(filtered, sort), [filtered, sort])
       const graphOn = useMemo(() => logGraphVisible(sort), [sort])
 
+      /**
+       * Whether a column is on the table right now. The subject is always
+       * there; the graph comes and goes with the history order; the narrow
+       * layout drops the author, then the hash, and a column that is not on
+       * screen takes no room.
+       */
+      const columnOn = (key) => {
+        if (key === 'graph') return graphOn
+        if (key === 'subject') return true
+        if (key === 'author') return Boolean(columns.author) && !narrow
+        if (key === 'hash') return Boolean(columns.hash) && !tight
+        return Boolean(columns[key])
+      }
+
+      /**
+       * The width a column has when the user did not touch it. The graph is
+       * narrower in the stacked layout, where the list shares the panel with
+       * the detail.
+       */
+      function defaultWidth(key) {
+        if (key === 'graph' && rootRef.current?.dataset.compact === '1') return 30
+        return LOG_WIDTH_DEFAULTS[key]
+      }
+
+      /**
+       * How the room of the table is shared. Every column asks for a width and
+       * the pane is the wall. The column the user touched last keeps what it
+       * asks for; the others give way, each giving up a share of the room it
+       * could have used, so nothing falls under the width it needs and
+       * nothing overflows the pane.
+       */
+      function columnPlan(avail) {
+        const fixed = LOG_WIDTH_KEYS.filter((key) => key !== 'subject' && columnOn(key))
+        const gaps = LOG_GAP * (fixed.length + 1)
+        const room = Math.max(0, avail - LOG_PAD - LOG_ROW_MORE - gaps)
+        const columns = fixed.map((key) => {
+          const [min, hardMax] = LOG_WIDTH_LIMITS[key]
+          return { key, min, want: Math.max(min, Math.min(hardMax, widths[key] ?? defaultWidth(key))) }
+        })
+        // The message has a width of its own only once the user gives it one;
+        // until then it takes what the other columns leave.
+        if (widths.subject != null) {
+          const [min, hardMax] = LOG_WIDTH_LIMITS.subject
+          columns.push({ key: 'subject', min, want: Math.max(min, Math.min(hardMax, widths.subject)) })
+        }
+        const reserve = widths.subject == null ? LOG_SUBJECT_MIN : 0
+        const effective = {}
+        const lead = columns.find((column) => column.key === leadKey) ?? null
+        if (lead) {
+          // The column in the hand keeps what it asks for; the others give way.
+          const others = columns.filter((column) => column.key !== lead.key)
+          const floor = others.reduce((sum, column) => sum + column.min, 0)
+          const take = Math.max(lead.min, Math.min(lead.want, room - floor - reserve))
+          effective[lead.key] = take
+          shareRoom(others, room - take - reserve, effective)
+        } else {
+          shareRoom(columns, room - reserve, effective)
+        }
+        const used = Object.values(effective).reduce((sum, width) => sum + width, 0)
+        if (widths.subject == null) effective.subject = Math.max(LOG_SUBJECT_MIN, room - used)
+        return { effective, columns, room }
+      }
+
+      /**
+       * Split a room between the columns that want it. A column that fits
+       * keeps its width; when they do not all fit, they give up the same share
+       * of the room they could have used.
+       */
+      function shareRoom(columns, room, into) {
+        if (!columns.length) return
+        const want = columns.reduce((sum, column) => sum + column.want, 0)
+        const floor = columns.reduce((sum, column) => sum + column.min, 0)
+        const target = Math.round(room)
+        if (want <= target) {
+          for (const column of columns) into[column.key] = column.want
+          return
+        }
+        if (floor >= target) {
+          for (const column of columns) into[column.key] = column.min
+          return
+        }
+        const slack = columns.reduce((sum, column) => sum + (column.want - column.min), 0)
+        const extra = target - floor
+        const shares = new Map()
+        for (const column of columns) shares.set(column.key, column.min + (extra * (column.want - column.min)) / slack)
+        let sum = 0
+        for (const [key, value] of shares) {
+          const whole = Math.floor(value)
+          shares.set(key, whole)
+          sum += whole
+        }
+        // The pixels the rounding left over go to the columns that lost most.
+        let left = target - sum
+        for (const [key] of [...shares.entries()].sort((a, b) => b[1] - a[1])) {
+          if (left <= 0) break
+          shares.set(key, shares.get(key) + 1)
+          left -= 1
+        }
+        for (const [key, value] of shares) into[key] = value
+      }
+
+      const widthVars = useMemo(() => {
+        const style = {}
+        const avail = listWidth
+        if (!avail) return style
+        const plan = columnPlan(avail)
+        for (const [key, width] of Object.entries(plan.effective)) {
+          if (key === 'subject') continue
+          style[`--gwb-col-${key}`] = `${width}px`
+        }
+        if (widths.subject != null) style['--gwb-col-subject'] = `${plan.effective.subject}px`
+        return style
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [widths, listWidth, leadKey, graphOn, columns.author, columns.date, columns.hash, narrow, tight])
+
       // The columns decide how wide the subject is, so the rows re-measure
       // whenever a column comes or goes.
       useEffect(() => {
         measureSubject()
-      }, [measureSubject, columns.author, columns.date, columns.hash, graphOn])
+      }, [measureSubject, columns.author, columns.date, columns.hash, graphOn, widths])
 
       // The commits the list shows right now. A folded group is not in it, so
       // a range selection cannot reach a row nobody can see.
@@ -2761,34 +2913,152 @@ window.__ModuleLoader__.load({
       }
 
       /**
+       * The width a column may take. The pane is the wall: a column can fill
+       * the room the other columns leave, and the message keeps a floor so a
+       * wide column never pushes it out of the list.
+       */
+      function columnRoom(key) {
+        const [min, hardMax] = LOG_WIDTH_LIMITS[key]
+        const avail = listRef.current?.clientWidth ?? 0
+        if (!avail) return [min, hardMax]
+        const plan = columnPlan(avail)
+        const others = plan.columns.filter((column) => column.key !== key)
+        const floor = others.reduce((sum, column) => sum + column.min, 0)
+        // The message keeps a floor of its own unless it is the column in hand.
+        const subjectFloor = key === 'subject' || widths.subject != null ? 0 : LOG_SUBJECT_MIN
+        const max = plan.room - floor - subjectFloor
+        return [min, Math.max(min, Math.min(hardMax, Math.round(max)))]
+      }
+
+      /**
+       * Drag a column edge. While the mouse is down the width rides on the
+       * list as a CSS variable, so the header and every row follow without a
+       * re-render; the value is written to the store once, when the drag ends.
+       */
+      function startResize(key, event) {
+        if (event.button !== 0) return
+        const handle = event.currentTarget
+        const cell = handle.parentElement
+        const list = listRef.current
+        if (!cell || !list) return
+        event.preventDefault()
+        event.stopPropagation()
+        const startX = event.clientX
+        const startWidth = cell.getBoundingClientRect().width
+        const [min, max] = columnRoom(key)
+        // The message column only holds a width of its own once it is told
+        // to; the drag has to say so before the first pixel moves.
+        const wasCustom = Boolean(widths.subject)
+        const previousValue = list.style.getPropertyValue(`--gwb-col-${key}`)
+        let width = Math.round(startWidth)
+        let dragged = false
+        const move = (moveEvent) => {
+          if (Math.abs(moveEvent.clientX - startX) > 2) {
+            dragged = true
+            handle.classList.add('on')
+          }
+          width = Math.max(min, Math.min(max, Math.round(startWidth + moveEvent.clientX - startX)))
+          list.style.setProperty(`--gwb-col-${key}`, `${width}px`)
+          if (key === 'subject') list.dataset.customSubject = '1'
+        }
+        const finish = () => {
+          document.removeEventListener('mousemove', move)
+          document.removeEventListener('mouseup', finish)
+          document.body.style.cursor = ''
+          document.body.style.userSelect = ''
+          handle.classList.remove('on')
+          if (!dragged) {
+            // A click on the grip is not a resize: leave the column as it was.
+            if (previousValue) list.style.setProperty(`--gwb-col-${key}`, previousValue)
+            else list.style.removeProperty(`--gwb-col-${key}`)
+            if (key === 'subject' && !wasCustom) delete list.dataset.customSubject
+            return
+          }
+          dragGuard.current = Date.now()
+          logWidthStore.set(key, width)
+        }
+        document.addEventListener('mousemove', move)
+        document.addEventListener('mouseup', finish)
+        document.body.style.cursor = 'col-resize'
+        document.body.style.userSelect = 'none'
+      }
+
+      /**
+       * The drag edge on a header cell. It is its own control rather than
+       * part of the sort button, so a drag never reads as a click on it.
+       * A double click hands the column back to the stylesheet.
+       */
+      function resizer(key, label) {
+        const hint = tt('log.resizeColumn', { column: label })
+        return h('span', {
+          key: `resize:${key}`,
+          className: 'gwb-colresize',
+          role: 'separator',
+          'aria-orientation': 'vertical',
+          title: hint,
+          'aria-label': hint,
+          onMouseDown: (event) => startResize(key, event),
+          onClick: (event) => event.stopPropagation(),
+          onDoubleClick: (event) => {
+            event.stopPropagation()
+            logWidthStore.set(key, null)
+          },
+        })
+      }
+
+      /**
        * The table header. Clicking a column sorts the log by it, the way the
-       * IDE's log does — and the arrow says which way the list runs.
+       * IDE's log does — and the arrow says which way the list runs. Its
+       * column edges drag: a graph with more lanes than the default column
+       * shows, or a long author, is the user's call.
+       *
+       * The sort control and the drag edge are siblings inside the cell, not
+       * one inside the other: a control nested in a button never joins the
+       * keyboard's tab order, so the arrow keys had nowhere to land.
        */
       function logHeader() {
         const cell = (key, label) => {
           const on = sort.key === key
           const hint = on ? tt('log.sortFlip', { column: label }) : tt('log.sortBy', { column: label })
+          const resizable = Boolean(LOG_WIDTH_LIMITS[key])
           return h(
-            'button',
+            'div',
             {
               key,
+              'data-col': key,
               className: `gwb-logcols-cell gwb-${key}${on ? ' on' : ''}`,
-              title: hint,
-              'aria-label': hint,
-              onClick: () => logSortStore.toggle(key),
             },
-            h('span', { className: 'gwb-logcols-text' }, label),
-            on ? h('span', { className: 'gwb-logcols-arrow' }, sort.dir === 'asc' ? '▲' : '▼') : null,
+            h(
+              'button',
+              {
+                className: 'gwb-logcols-sort',
+                title: resizable ? `${hint} · ${tt('log.resizeHint')}` : hint,
+                'aria-label': hint,
+                onClick: () => {
+                  // The click that ends a drag belongs to the drag.
+                  if (Date.now() - dragGuard.current < 300) return
+                  logSortStore.toggle(key)
+                },
+              },
+              h('span', { className: 'gwb-logcols-text' }, label),
+              on ? h('span', { className: 'gwb-logcols-arrow' }, sort.dir === 'asc' ? '▲' : '▼') : null,
+            ),
+            resizable ? resizer(key, label) : null,
           )
         }
         return h(
           'div',
           { className: 'gwb-logcols', title: tt('log.columnsHint') },
-          graphOn ? h('span', { className: 'gwb-log-graph' }) : null,
+          graphOn
+            ? h('div', { className: 'gwb-logcols-cell gwb-log-graph', 'data-col': 'graph' }, resizer('graph', tt('log.graph')))
+            : null,
           cell('subject', tt('log.col.subject')),
           columns.author ? cell('author', tt('log.col.author')) : null,
           columns.date ? cell('date', tt('log.col.date')) : null,
           columns.hash ? cell('hash', tt('log.col.hash')) : null,
+          // The rows end with the commit menu button; the header keeps the
+          // same room so its labels sit exactly over the cells they name.
+          h('span', { className: 'gwb-logcols-more' }),
         )
       }
 
@@ -3099,7 +3369,14 @@ window.__ModuleLoader__.load({
               { className: `gwb-log-split${commit || detailBusy ? '' : ' nosel'}` },
               h(
                 'div',
-                { className: 'gwb-log-list', ref: listRef },
+                {
+                  className: 'gwb-log-list',
+                  ref: listRef,
+                  style: widthVars,
+                  // Once the message column has a width of its own it keeps it,
+                  // and the row ends where the columns end.
+                  'data-custom-subject': widths.subject ? '1' : undefined,
+                },
                 h(
                   'div',
                   { className: 'gwb-filter' },
@@ -3323,6 +3600,20 @@ window.__ModuleLoader__.load({
                         ),
                       ),
                     ),
+                // The graph belongs to the history order. Another order hides
+                // it, so the way back is one click away.
+                !pair && !graphOn && sorted.length > 0
+                  ? h(
+                      'button',
+                      {
+                        className: 'gwb-graphhint',
+                        title: tt('log.graphRestoreHint'),
+                        onClick: () => logSortStore.set({ key: 'date', dir: 'desc' }),
+                      },
+                      h(GitIcons.history, { size: 12 }),
+                      tt('log.graphRestore'),
+                    )
+                  : null,
                 ),
                 parsed.parts.length > 0
                   ? h(
