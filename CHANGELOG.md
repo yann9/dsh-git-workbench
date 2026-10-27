@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.4 — 2026-10-27
+
+### Changed
+
+- The plugin icon is drawn as a glyph instead of a filled square. The host's
+  plugin list frames every entry in its own 50px rounded tile and shrinks the
+  artwork to 36px, so the previous full-bleed plate arrived as a square inside
+  a square while the official entries read as flat glyphs. `assets/icon.png` is
+  regenerated transparent from the svg, with a stroke heavy enough to survive
+  36px.
+
+### Fixed
+
+- The English README carries its own shortcut table instead of sending readers
+  to the Chinese one, and both tables are now row-for-row identical. Checking
+  each binding against the handlers turned up one wrong in both languages: only
+  `ctrlKey` is read for the hunk revert, so `Cmd + Alt + R` never fired on a
+  Mac — the docs say `Ctrl + Alt + R`, which is what the code does.
+
 ## 0.1.3 — 2026-10-27
 
 ### Added
