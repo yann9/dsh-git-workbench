@@ -13,7 +13,7 @@
 
 [中文](README.zh.md) · [Features](docs/features.md) · [HTTP API](docs/api.md) · [Architecture](docs/architecture.md) · [Design notes](docs/jetbrains-parity.md) · [Development](docs/development.md)
 
-![Commit pane](docs/assets/commit-pane-en-light.png)
+![Commit pane](docs/assets/commit-pane-en.png)
 
 ## What it is
 
@@ -33,9 +33,9 @@ It also plugs into DSH surfaces you already use: the branch chip in the session 
 
 | Diff (side-by-side, word-level) | History (graph + sortable table) |
 |---|---|
-| ![Diff](docs/assets/diff-en-light.png) | ![History](docs/assets/history-en-light.png) |
+| ![Diff](docs/assets/diff-en.png) | ![History](docs/assets/history-en.png) |
 | **Conflict resolution** | **Stash (name + partial files)** |
-| ![Conflict](docs/assets/conflict-en-light.png) | ![Stash dialog](docs/assets/stash-dialog-en-light.png) |
+| ![Conflict](docs/assets/conflict-en.png) | ![Stash dialog](docs/assets/stash-dialog-en.png) |
 
 The Chinese-UI set is the same files without the `-en` infix, used by [README.zh.md](README.zh.md). The workbench follows the host theme and has no theme switch of its own, so dark mode needs no separate set.
 
