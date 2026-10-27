@@ -445,8 +445,12 @@ test('working-tree edits made outside the plugin reach the change watcher', asyn
   })
   t.after(dispose)
   await writeFile(path.join(dir, 'a.txt'), 'one\nexternal edit\nthree\n')
-  // The watcher debounces; give the filesystem a moment to report the change.
-  await new Promise((resolve) => setTimeout(resolve, 1500))
+  // The watcher debounces for 150ms; poll instead of sleeping a fixed span so a
+  // loaded CI runner cannot fail this by being merely slow (the event itself is
+  // delivered, it is the timer that lags).
+  for (let waited = 0; waited < 6000 && !fired; waited += 50) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
   assert.ok(fired, 'an edit outside the plugin notifies subscribers')
 })
 

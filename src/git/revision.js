@@ -157,17 +157,22 @@ export function watchRepo(root, listener) {
       entry.timers.add(release)
     }
     // The work tree is watched recursively so edits made outside this plugin
-    // (terminal, IDE, another tool) reach connected clients too; git itself is
-    // covered by the git-dir watchers. resolveGitDir handles linked worktrees
-    // and submodules, where `.git` is a pointer file rather than a directory.
+    // (terminal, IDE, another tool) reach connected clients too. It goes on
+    // *synchronously*: resolveGitDir shells out to git, and a save that landed
+    // while that probe was in flight used to be missed for good — the caller
+    // had its disposer already, yet nothing was watching the file it edited.
+    try {
+      const tree = watch(root, { recursive: true }, () => fire())
+      entry.timers.add(() => tree.close())
+    } catch {
+      // Node without recursive watching: git operations are still covered.
+    }
+    // resolveGitDir handles linked worktrees and submodules, where `.git` is a
+    // pointer file rather than a directory.
     void resolveGitDir(root).then((gitDir) => {
+      // Disposed while git was answering: nothing would ever close these.
+      if (!watching.has(cacheKey)) return
       const targets = [gitDir, path.join(gitDir, 'refs'), path.join(gitDir, 'refs', 'heads')]
-      try {
-        const tree = watch(root, { recursive: true }, () => fire())
-        entry.timers.add(() => tree.close())
-      } catch {
-        // Node without recursive watching: git operations are still covered.
-      }
       for (const target of targets) {
         try {
           const handle = watch(target, () => fire())
