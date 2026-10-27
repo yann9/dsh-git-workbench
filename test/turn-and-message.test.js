@@ -338,3 +338,28 @@ test('prompts and warnings follow the requested language', async () => {
   assert.match(zh.message, /^fix\(src\): 更新 store\.js$/)
   assert.match(zh.warning, /没有可用的模型路由/)
 })
+
+test('the prompt names the language to answer in', async () => {
+  // The rules used to imply the language through their own wording; a model
+  // reading an all-English diff then answered in English under a Chinese UI.
+  const prompts = []
+  const ctx = {
+    get: (name) =>
+      name === 'llm'
+        ? {
+            listProviders: () => [{ id: 'deepseek-account', defaultModel: 'deepseek-flash' }],
+            listModels: async () => [],
+            stream: async function* (request) {
+              prompts.push(request.messages?.[0]?.content?.[0]?.text ?? '')
+              yield { type: 'text-delta', index: 0, text: 'chore: x' }
+              yield { type: 'finish', reason: { kind: 'stop' } }
+            },
+          }
+        : undefined,
+    logger: { warn: () => {} },
+  }
+  await draftCommitMessage(ctx, STAGED_DIFF, { language: 'zh' })
+  await draftCommitMessage(ctx, STAGED_DIFF, { language: 'en' })
+  assert.match(prompts[0], /提交信息用中文书写/)
+  assert.match(prompts[1], /Write the message in English/)
+})
