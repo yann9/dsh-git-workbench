@@ -763,7 +763,15 @@ window.__ModuleLoader__.load({
       }
       // A session with no messages has no conversation view ring at all. Without
       // a fallback the click would silently do nothing, so show the diff in the
-      // right sidebar instead — same component, same target store.
+      // right sidebar instead — same component, same target store. Name the
+      // branch in the console: a diff that shows up in the right sidebar while
+      // the conversation is on screen means this fallback fired, and that is a
+      // registration problem to fix, not a preference.
+      const target = diffTargetStore.snapshot()
+      console.warn('[git-workbench] the conversation view took no 差异 tab; opening the right sidebar instead', {
+        source: target?.source ?? null,
+        dir: target?.dir ? 'explicit' : 'from the session',
+      })
       if (ctx && !openTab(ctx, DIFF_KIND)) {
         console.warn('[git-workbench] the diff has nowhere to go: no conversation view and no right sidebar')
       }
