@@ -208,6 +208,16 @@ test('a missing credential falls back with an actionable message', async () => {
   assert.match(result.message, /^fix\(src\)/)
 })
 
+test('an account that is not signed in says so in the UI language', async () => {
+  const ctx = llmCtx(async function* () {
+    yield { type: 'finish', reason: { kind: 'error', failure: { code: 'ACCOUNT_SIGN_IN_REQUIRED', message: 'Sign in to DeepSeek to use the account provider.' } } }
+  })
+  const result = await draftCommitMessage(ctx, STAGED_DIFF, {})
+  assert.equal(result.source, 'heuristic')
+  assert.match(result.warning, /未登录/)
+  assert.doesNotMatch(result.warning, /Sign in/)
+})
+
 test('without any model route the local rules still answer', async () => {
   const result = await draftCommitMessage({ get: () => undefined }, STAGED_DIFF, {})
   assert.equal(result.source, 'heuristic')
@@ -234,6 +244,89 @@ test('the model comes from the provider, never from a hard-coded list', async (t
   const result = await draftCommitMessage(ctx, STAGED_DIFF, {})
   assert.equal(result.source, 'model')
   assert.deepEqual(seen, ['some-other-provider/their-model'])
+})
+
+test("an official-account login uses the session's selected route", async () => {
+  // The first registered provider on an official login has no catalog of its
+  // own; the route chat uses is the selection, and only that one is usable.
+  const seen = []
+  const ctx = {
+    get: (name) => {
+      if (name === 'llm') {
+        return {
+          listProviders: () => [{ id: 'deepseek-official', name: 'DeepSeek' }],
+          listModels: async () => [],
+          stream: async function* (request) {
+            seen.push(`${request.provider}/${request.model}`)
+            yield { type: 'text-delta', index: 0, text: 'chore: x' }
+            yield { type: 'finish', reason: { kind: 'stop' } }
+          },
+        }
+      }
+      if (name === 'agentDefaultModel') {
+        return { currentSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }) }
+      }
+      return undefined
+    },
+    logger: { warn: () => {} },
+  }
+  const result = await draftCommitMessage(ctx, STAGED_DIFF, {})
+  assert.equal(result.source, 'model')
+  assert.equal(result.model, 'deepseek-account/deepseek-flash')
+  assert.deepEqual(seen, ['deepseek-account/deepseek-flash'])
+})
+
+test('a configured provider and model still win over the selection', async () => {
+  const seen = []
+  const ctx = {
+    get: (name) => {
+      if (name === 'llm') {
+        return {
+          listProviders: () => [{ id: 'deepseek-account' }],
+          listModels: async () => [],
+          stream: async function* (request) {
+            seen.push(`${request.provider}/${request.model}`)
+            yield { type: 'text-delta', index: 0, text: 'chore: x' }
+            yield { type: 'finish', reason: { kind: 'stop' } }
+          },
+        }
+      }
+      if (name === 'agentDefaultModel') {
+        return { currentSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }) }
+      }
+      return undefined
+    },
+    logger: { warn: () => {} },
+  }
+  const result = await draftCommitMessage(ctx, STAGED_DIFF, { provider: 'my-proxy', model: 'big-model' })
+  assert.equal(result.model, 'my-proxy/big-model')
+  assert.deepEqual(seen, ['my-proxy/big-model'])
+})
+
+test("a provider override does not borrow another provider's model id", async () => {
+  const seen = []
+  const ctx = {
+    get: (name) => {
+      if (name === 'llm') {
+        return {
+          listProviders: () => [{ id: 'some-other-provider', defaultModel: 'their-default' }],
+          listModels: async () => [],
+          stream: async function* (request) {
+            seen.push(`${request.provider}/${request.model}`)
+            yield { type: 'text-delta', index: 0, text: 'chore: x' }
+            yield { type: 'finish', reason: { kind: 'stop' } }
+          },
+        }
+      }
+      if (name === 'agentDefaultModel') {
+        return { currentSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }) }
+      }
+      return undefined
+    },
+    logger: { warn: () => {} },
+  }
+  await draftCommitMessage(ctx, STAGED_DIFF, { provider: 'some-other-provider' })
+  assert.deepEqual(seen, ['some-other-provider/their-default'])
 })
 
 test('prompts and warnings follow the requested language', async () => {

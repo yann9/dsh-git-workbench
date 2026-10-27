@@ -100,8 +100,8 @@ dsh plugin --profile web remove @yann9/dsh-git-workbench
         listMode: 'last'               # 'tree' | 'flat' | 'last'（跟随上次选择）
 
         commitLanguage: 'auto'         # 'auto'（跟随界面语言）| 'zh' | 'en'
-        llmProvider: ''                # 留空 = 模型路由的默认 provider
-        llmModel: ''                   # 留空 = provider 的目录 / 默认模型
+        llmProvider: ''                # 留空 = DSH 里选中的模型路由
+        llmModel: ''                   # 留空 = 该路由选中的模型
 ```
 
 未写的键使用上表默认值。`readOnly: true` 适合把工作台当作只读评审面板：暂存、提交、分支、网络、冲突解决全部禁用，HTTP 写接口返回 403（`/config` 除外）。

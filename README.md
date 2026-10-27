@@ -87,8 +87,8 @@ Everything is editable in **Settings → Plugins → Git workbench**, or in the 
         diffSideBySide: true
         listMode: 'last'               # 'tree' | 'flat' | 'last'
         commitLanguage: 'auto'         # 'auto' | 'zh' | 'en'
-        llmProvider: ''
-        llmModel: ''
+        llmProvider: ''                # empty: the route DSH has selected
+        llmModel: ''                   # empty: that route's selected model
 ```
 
 ## Highlights

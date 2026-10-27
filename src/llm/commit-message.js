@@ -5,10 +5,14 @@
  * suggestion follows the same provider, model and credentials the session
  * already uses. Two rules the previous version broke and this one keeps:
  *
- *  - **No hard-coded model ids.** The model comes from the caller's config,
- *    then the provider's catalog, then the provider's declared default. Guessing
- *    an id means one wrong id silently costs the whole feature on another
- *    provider.
+ *  - **No hard-coded model ids.** The model comes from the session's own
+ *    selection (`agentDefaultModel`), then the caller's config, then the
+ *    provider's catalog/default. Guessing an id means one wrong id silently
+ *    costs the whole feature on another provider.
+ *  - **The session's selection is the route, not the first provider in the
+ *    registry.** An official-account login registers routes whose catalog lives
+ *    behind the app's model picker; taking `listProviders()[0]` there finds a
+ *    provider with no model at all, while the route chat actually uses is fine.
  *  - **No hard-coded language.** Prompts, warnings and the deterministic
  *    fallback follow the requested language (default follows the UI locale).
  */
@@ -37,10 +41,11 @@ const DICT = {
     emptyReply: (chunks) => `模型返回了空消息（chunks: ${chunks || 'none'}）`,
     noRoute: '当前 profile 没有可用的模型路由，已用本地规则生成',
     noProvider: '没有已注册的模型 provider',
-    noModel: (provider) => `provider ${provider} 没有可用模型：可在插件配置里指定 llmModel`,
+    noModel: (provider) => `provider ${provider} 没有可用模型：先在 DSH 里选一个模型，或在插件配置里指定 llmModel`,
     callFailed: '模型调用失败',
     fallback: (detail) => `模型不可用（${detail}），已用本地规则生成提交信息`,
     credential: '模型凭据未配置，已用本地规则生成提交信息',
+    signIn: '模型账号未登录，已用本地规则生成提交信息',
     quota: '模型额度不足，已用本地规则生成提交信息',
     timeout: '模型响应超时，已用本地规则生成提交信息',
     noChanges: 'chore: 无改动',
@@ -62,10 +67,11 @@ const DICT = {
     emptyReply: (chunks) => `the model returned an empty message (chunks: ${chunks || 'none'})`,
     noRoute: 'no model route is available in this profile; drafted with the local rules',
     noProvider: 'no model provider is registered',
-    noModel: (provider) => `provider ${provider} exposes no model: set llmModel in the plugin config`,
+    noModel: (provider) => `provider ${provider} exposes no model: pick a model in DSH, or set llmModel in the plugin config`,
     callFailed: 'the model call failed',
     fallback: (detail) => `the model is unavailable (${detail}); drafted with the local rules`,
     credential: 'model credentials are not configured; drafted with the local rules',
+    signIn: 'the DSH account is not signed in; drafted with the local rules',
     quota: 'model quota is exhausted; drafted with the local rules',
     timeout: 'the model timed out; drafted with the local rules',
     noChanges: 'chore: no changes',
@@ -95,7 +101,8 @@ export async function draftCommitMessage(ctx, diff, options = {}) {
 
   if (llm && typeof llm.stream === 'function') {
     try {
-      const { text: reply, model, chunkTypes } = await callModel(llm, prompt, { ...options, language })
+      const route = resolveRoute(ctx, options)
+      const { text: reply, model, chunkTypes } = await callModel(llm, prompt, { ...options, ...route, language })
       const cleaned = cleanup(reply)
       if (cleaned !== '') return { message: cleaned, source: 'model', model, warning: null }
       safeWarn(ctx, `empty model reply from ${model}; chunks: ${chunkTypes.join(',') || '(none)'}`)
@@ -123,6 +130,29 @@ export async function draftCommitMessage(ctx, diff, options = {}) {
     model: null,
     warning: text.noRoute,
   }
+}
+
+/**
+ * The route chat itself uses. A plugin config entry overrides it, field by
+ * field: a provider alone keeps the selection's model only while both name the
+ * same route, since another provider's model id would be meaningless there.
+ * @param {any} ctx
+ * @param {{ provider?: string, model?: string }} options
+ * @returns {{ provider: string, model: string }}
+ */
+function resolveRoute(ctx, options) {
+  const defaults = safeGet(ctx, 'agentDefaultModel')
+  let current = null
+  try {
+    current = typeof defaults?.currentSelection === 'function' ? defaults.currentSelection() : null
+  } catch {
+    current = null
+  }
+  const selectedProvider = typeof current?.provider === 'string' ? current.provider : ''
+  const provider = options.provider || selectedProvider
+  const sameRoute = provider !== '' && provider === selectedProvider
+  const model = options.model || (sameRoute && typeof current?.model === 'string' ? current.model : '')
+  return { provider, model }
 }
 
 /**
@@ -345,6 +375,7 @@ function commonScope(paths) {
  */
 function friendly(detail, language) {
   const text = dictFor(language)
+  if (/ACCOUNT_SIGN_IN_REQUIRED|Sign in to /i.test(detail)) return text.signIn
   if (/MISSING_CREDENTIAL|no API key/i.test(detail)) return text.credential
   if (/QUOTA|余额|exceeded/i.test(detail)) return text.quota
   if (/timeout|aborted/i.test(detail)) return text.timeout

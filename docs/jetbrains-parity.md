@@ -106,11 +106,12 @@ DSH 的「每轮改动」卡片已经渲染了文件名与增删行数，缺的�
 
 ### 8.3 AI 生成提交信息
 
-调用链是 `ctx.llm.listProviders()` → 选路由 → `listModels()` → `ctx.llm.stream()` → 拼 `text-delta`。三个坑：
+调用链是 `ctx.agentDefaultModel.currentSelection()` → 选路由 → `listModels()` → `ctx.llm.stream()` → 拼 `text-delta`。四个坑：
 
 1. **provider 要用 `id` 不是 `name`**。路由键是 `provider.id`，传 `name` 会得到 `no adapter registered for provider`。
 2. **流结束后看 `finish.reason`，不是 `finish.error`**。失败以 `reason.kind === 'error'` 表达，漏判就会得出"模型返回空消息"这种误导性结论。
-3. **`listModels()` 可能是空的**。它是可选能力。候选链是：配置里的 `llmModel` → `listModels()` 目录 → provider 自己声明的 `defaultModel`。不硬编码任何模型 id。
+3. **路由要取用户在 DSH 里选中的那条，不是 provider 列表的第一个**。官方账号登录时注册的 provider 不止一个，排在前面的那个可能一个模型都不暴露（目录在 App 的模型选择里，不在插件能枚举的注册表里），于是 `listModels()` 为空、又没有 `defaultModel`，最后报「provider 没有可用模型」——而对话框里明明能用。会话用的就是 `ctx.agentDefaultModel.currentSelection()`，插件照抄它即可；插件配置里的 `llmProvider` / `llmModel` 逐字段覆盖。
+4. **`listModels()` 可能是空的**。它是可选能力。候选链是：当前选择 / 配置里的 `llmModel` → `listModels()` 目录 → provider 自己声明的 `defaultModel`。不硬编码任何模型 id。
 
 降级不是失败：没有模型、没有 key、超时，都会用一条本地规则生成 `type(scope): 做了什么` 形式的提交信息，并把真实原因显示出来。提交这件事不能被 AI 卡住。
 
