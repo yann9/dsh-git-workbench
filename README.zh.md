@@ -178,7 +178,7 @@ host 与 client 都是可直接运行的 ESM，没有构建步骤：`link:` 指�
 
 semver，且 `package.json` 的 `version`、[CHANGELOG.md](CHANGELOG.md) 的段落标题与 git tag（`v0.1.0`）三处始终一致。CI 在 Ubuntu 与 Windows 上跑 Node 22 / 24 四组矩阵，合并前必须全绿。
 
-推送 tag 就是发布：`.github/workflows/release.yml` 先跑同一套矩阵当闸门，再建 GitHub Release（说明按 conventional commit 的类型分组），然后用 npm 的 Trusted Publishing（OIDC，仓库里没有 token）把包发到 npm 并从官方源回读校验包内容。流程细节与 Trusted Publisher 绑定步骤见 [docs/development.md](docs/development.md)。
+推送 tag 就是发布：`.github/workflows/release.yml` 先跑同一套矩阵当闸门，再建 GitHub Release（说明按 conventional commit 的类型分组），然后用 npm 的 Trusted Publishing（OIDC，仓库里没有 token）把包**暂存**到 npm。暂存不等于发布 —— 包在 npm 上但还装不了，要等维护者用 2FA 批准，每一次发布都留着这道人工关；tarball 出机器之前，流水线会先核对打包出来的文件清单。流程细节与 Trusted Publisher 绑定步骤见 [docs/development.md](docs/development.md)。
 
 ## 许可
 

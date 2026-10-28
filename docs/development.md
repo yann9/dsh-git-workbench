@@ -33,7 +33,7 @@ node scripts/dev-server.js <仓库路径> 5178
 npm test
 ```
 
-104 个用例，全部使用真实 git 仓库，覆盖：
+134 个用例，全部使用真实 git 仓库，覆盖：
 
 | 文件 | 内容 |
 |---|---|
@@ -41,6 +41,8 @@ npm test
 | `test/http-api.test.js` | 每个端点、只读 403、CSRF、`ignoreWhitespace`、按变更列表提交、远程仓库校验、控制台隔离 |
 | `test/client-pure.test.js` | 纯函数（diff 切片、日志筛选与归类、标签折叠、i18n 回退）与样式契约（无行首 `//`、花括号配平、`statusColor` 只用 ink token） |
 | `test/turn-and-message.test.js` | 轮次快照与 AI 提交信息的降级链路 |
+| `test/release-notes.test.js` | 发布说明按 conventional 前缀分组、破坏性变更的判定、与上一个 tag 的比较 |
+| `test/stage-release.test.js` | 暂存脚本：已发布则跳过、暂存包的文件清单、预发布走 `next` 标签 |
 
 约定：
 
@@ -68,26 +70,33 @@ npm test
 ```bash
 git add -A && git commit -m "feat: …"     # 提交信息写 conventional，release notes 靠它分组
 git tag v0.1.0
-git push origin main --tags               # tag 一落地就触发发布
+git push origin main --tags               # tag 一落地就出 GitHub Release 并把包暂存到 npm
 ```
 
 `.github/workflows/release.yml` 接手，顺序是：
 
 1. **发布闸门**：跑和 CI 完全相同的四矩阵测试（Ubuntu / Windows × Node 22 / 24），全绿才继续。
 2. **GitHub Release**：`scripts/release-notes.js` 生成说明，`gh release create`（同一 tag 重跑则 `release edit`；tag 里带 `-rc.N` 之类后缀的自动标成 prerelease）。
-3. **npm publish**：`npm publish --provenance --access public`，registry 由 `publishConfig` 钉死官方源。
-4. **回读校验**：等 npm 把新版本放进 packument（发布是异步处理的，可能要几分钟），再从官方源装一次，检查 `cordis.patch.yml`、`src/index.js`、七个 client chunk 与两个 locale 都在包里 —— DSH 解析 bundle 需要的东西缺一个都算发布失败。
+3. **npm 暂存**：`scripts/stage-release.js` 执行 `npm stage publish --provenance --access public`，把 tarball 推进 npm 的暂存队列。**暂存不是发布**：包已经躺在 npm 上，但谁都装不了，直到维护者用 2FA 批准。预发布版本自动加 `--tag next`，不抢稳定版的 `latest`；这个版本已经在 npm 上了就跳过暂存。
+4. **校验暂存包**：脚本按 npm 实际打包出来的文件清单核对 `cordis.patch.yml`、`src/index.js`、七个 client chunk、两个 locale 和 `assets/icon.png` 都在包里，`docs/internal/` 不在包里 —— DSH 解析 bundle 需要的东西缺一个都算发布失败，脚本直接非零退出。
+5. **人工批准**：workflow 把 stage id 写进 job summary，维护者在自己终端跑 `npm stage approve <stage-id>`（2FA 提示留在这个终端里，不要贴到聊天或工单里）。
 
 **仓库里不放任何 npm token**：发布用 npm 的 Trusted Publishing（OIDC）。GitHub Actions 的这次运行身份就是发布凭据，npm 那边按「哪个仓库、哪个 workflow 文件」来认。绑定是一次性的人工操作，只能在 npm 网站做（脚本代替不了）：
 
 1. 打开包的 **Settings → Publishing access → Trusted Publisher**（`https://www.npmjs.com/settings/yann9/packages/dsh-git-workbench/access`）。
 2. 填 GitHub Actions：Repository owner `yann9`、Repository name `dsh-git-workbench`、Workflow filename `release.yml`（**只填文件名，不填 `.github/workflows/` 路径**）、Environment 留空（workflow 没声明 environment）。
-3. **勾上允许 `npm publish`**：npm 的 Trusted Publisher 有两个互不相关的权限 —— `npm stage publish` 默认就有，直接 `npm publish` 要单独开。只勾暂存的话，发布会以 `403 … OIDC permission denied for this action` 失败。
-4. 未验证的新绑定 48 小时后过期，所以要么绑完立刻推 tag 让它发布一次，要么下次再绑。
+3. **勾上允许 `npm stage publish`**：Trusted Publisher 有两个互不相关的权限 —— 暂存（`createStagedPackage`）和直接发布（`createPackage`），npm 官网对应两个复选框。本仓库只暂存不直发，所以**只勾暂存**就够了；反过来说，勾了直发权限却没走审批，等于把 2FA 绕过去了。权限对不上时，暂存会以 `403 … OIDC permission denied for this action` 失败。
+4. 未验证的新绑定 48 小时后过期，所以要么绑完立刻推 tag 让它暂存一次，要么下次再绑。
 
-也可以用 CLI 配（需要 2FA）：`npm trust github @yann9/dsh-git-workbench --file release.yml --repo yann9/dsh-git-workbench --allow-publish --registry=https://registry.npmjs.org/`；每个包同一时间只有一条绑定，要改先 `npm trust list` 拿 id、再 `npm trust revoke --id=<id>`。
+也可以用 CLI 配（需要 2FA）：`npm trust github @yann9/dsh-git-workbench --file release.yml --repo yann9/dsh-git-workbench --allow-stage-publish --registry=https://registry.npmjs.org/`；每个包同一时间只有一条绑定，要改先 `npm trust list` 拿 id、再 `npm trust revoke --id=<id>`。从「只许直发」切到「只许暂存」就是这么换：撤销旧的，再按上面的命令建一条新的。
 
-另外两件事：workflow 的 `id-token: write` 权限是凭据来源，去掉它就换不到发布身份；发布用的 npm CLI 必须 **≥ 11.16**，所以 release job 钉 Node 24（Node 22 自带的 npm 太旧，脚本里有一步显式检查并报错）。发布事件只用 `push: tags`，不要用 `pull_request_target` —— 那是已知攻击面。
+另外两件事：workflow 的 `id-token: write` 权限是凭据来源，去掉它就换不到发布身份；发布用的 npm CLI 必须 **≥ 11.16**（`npm stage` 子命令从 11.15 起就有了），所以 release job 钉 Node 24（Node 22 自带的 npm 太旧，脚本里有一步显式检查并报错）。发布事件只用 `push: tags`，不要用 `pull_request_target` —— 那是已知攻击面。
+
+CI 里的短期 OIDC token 只能跑 `npm stage publish` / `npm publish`，**跑不了 `npm stage list` / `view` / `download`**。所以校验只看打包时 npm 自己吐出来的文件清单，暂存包本体要人工在自己终端里下载查看：
+
+```bash
+npm stage download <stage-id> --registry=https://registry.npmjs.org/
+```
 
 第一次绑定前如果要先出包，就走下面的手动发布（OTP）路子，之后再补绑定。
 
@@ -120,13 +129,17 @@ node scripts/release-notes.js --tag v0.1.0 --no-changelog   # 只要提交列表
 
 已安装的 profile 也要同步：`node_modules/@<scope>/<包名>` 的目录、`package.json` 里的依赖键和 `dsh.profile.bundles` 条目。
 
-不经过 CI 手动发布时的检查清单：
+不经过 CI 手动发布时的检查清单（默认也走暂存，和流水线保持一致）：
 
 ```bash
 npm test
 npm pack --dry-run        # 看打包内容：src / locale / cordis.patch.yml / docs（含 assets）/ README
-npm publish --access public
+npm stage publish --access public
+npm stage list            # 找到刚暂存的 stage id
+npm stage approve <stage-id>
 ```
+
+`npm stage publish` 本身不要 2FA，`npm stage approve` / `npm stage reject` 要 —— 提示在本机终端里，别把 OTP 贴到聊天里。确实要一步直发时才用 `npm publish --access public`（没有暂存记录，也就没有审批这一步）。
 
 手动发布**不要**加 `--provenance`：provenance 只能由 CI 生成，本机跑会报 `EUSAGE Automatic provenance generation not supported for provider: null`。要带 provenance 就走上面的 tag 流水线。
 
@@ -137,7 +150,9 @@ npm login --registry=https://registry.npmjs.org/
 npm whoami --registry=https://registry.npmjs.org/
 ```
 
-`package.json` 的 `files` 已经限定为 `src`、`locale/*.json`、`cordis.patch.yml`、`README.md`、`README.zh.md`、`CHANGELOG.md`、`CONTRIBUTING.md`、`SECURITY.md`、`docs/*.md` 与 `docs/assets`；`package.json` 与 `LICENSE` 由 npm 自动包含。`docs/internal/` 既在 `.gitignore` 里也不在 `files` 里，不会进包。发布前先 `npm login`（项目里没有 `.npmrc` 或 token），发布后从干净 profile 验一次：
+`npm stage` 的子命令同样要指官方源 —— 镜像不实现 `/-/stage` 这些接口，`approve` 带上 `--registry=https://registry.npmjs.org/` 才不会打空。
+
+`package.json` 的 `files` 已经限定为 `src`、`locale/*.json`、`cordis.patch.yml`、`README.md`、`README.zh.md`、`CHANGELOG.md`、`CONTRIBUTING.md`、`SECURITY.md`、`docs/*.md` 与 `docs/assets`；`package.json` 与 `LICENSE` 由 npm 自动包含。`docs/internal/` 既在 `.gitignore` 里也不在 `files` 里，不会进包（`scripts/stage-release.js` 还会再查一遍）。发布前先 `npm login`（项目里没有 `.npmrc` 或 token），发布后从干净 profile 验一次：
 
 ```bash
 dsh plugin --profile web add @yann9/dsh-git-workbench

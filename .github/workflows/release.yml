@@ -2,7 +2,7 @@ name: Release
 
 # Pushing a version tag is the whole release trigger: the test matrix gates it,
 # the release notes come from the conventional commits since the previous tag,
-# and npm publish follows in the same run.
+# and the npm tarball is staged for the maintainer to approve.
 on:
   push:
     tags: ['v[0-9]*']
@@ -38,7 +38,7 @@ jobs:
         run: npm test
 
   release:
-    name: GitHub release + npm (${{ github.ref_name }})
+    name: GitHub release + npm stage (${{ github.ref_name }})
     needs: test
     runs-on: ubuntu-latest
     permissions:
@@ -53,15 +53,16 @@ jobs:
           # tag history has to be present.
           fetch-depth: 0
 
-      # Trusted publishing needs npm CLI >= 11.16; Node 24 ships a new enough
-      # one, Node 22 does not.
+      # Trusted publishing needs npm CLI >= 11.16, and staged publishing came
+      # with the same generation of the CLI; Node 24 ships a new enough one,
+      # Node 22 does not.
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           # The suite needs no dependencies, so there is nothing to cache.
           package-manager-cache: false
 
-      - name: Check the npm CLI can do trusted publishing
+      - name: Check the npm CLI can stage a trusted publish
         run: |
           set -euo pipefail
           version="$(npm -v)"
@@ -73,6 +74,7 @@ jobs:
               process.exit(1)
             }
           ' "${version}"
+          npm stage publish --help >/dev/null
 
       - name: Build the release notes
         run: node scripts/release-notes.js --tag "${{ github.ref_name }}" --output "${RUNNER_TEMP}/notes.md"
@@ -99,64 +101,41 @@ jobs:
               ${PRERELEASE}
           fi
 
-      # publishConfig already pins registry.npmjs.org, so a mirror configured
-      # on the runner cannot swallow the publish. The identity comes from OIDC:
-      # npm rejects this unless the package's Trusted Publisher lists
-      # yann9 / dsh-git-workbench / release.yml (Environment left blank) *and*
-      # allows `npm publish` — staging alone is not enough.
-      # A re-run of a tag whose version already landed must not fail here.
-      - name: Publish to npm
+      # The tarball goes to npm's staging queue, not to the registry: it stays
+      # uninstallable until the maintainer approves it with 2FA. The identity
+      # comes from OIDC, so npm rejects this unless the package's Trusted
+      # Publisher lists yann9 / dsh-git-workbench / release.yml (Environment
+      # left blank) *and* allows `npm stage publish`.
+      # The script checks the tarball it packed: DSH needs the bundle manifest
+      # and every client chunk to be inside it.
+      - name: Stage the version on npm
+        id: stage
         env:
           VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          version="${VERSION#v}"
-          if npm view "@yann9/dsh-git-workbench@${version}" version \
-            --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
-            echo "::notice::${version} is already on npm, skipping the publish"
+          node scripts/stage-release.js --version "${VERSION}" \
+            --registry=https://registry.npmjs.org/
+
+      - name: Report how to approve the staged version
+        env:
+          STATUS: ${{ steps.stage.outputs.status }}
+          STAGE_ID: ${{ steps.stage.outputs.stage_id }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "${STATUS}" != "staged" ]]; then
+            echo "::notice::${VERSION} was already on npm, nothing to approve"
             exit 0
           fi
-          # npm publishes a prerelease under `latest` unless it is told not to,
-          # which would push the channel back to an rc build.
-          if [[ "${version}" == *-* ]]; then
-            npm publish --provenance --access public --tag next
-          else
-            npm publish --provenance --access public
-          fi
-
-      # The published tarball is what DSH resolves: the bundle manifest and every
-      # client chunk have to be inside it.
-      - name: Verify the published payload
-        env:
-          VERSION: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          version="${VERSION#v}"
-          # npm processes a publish in the background, so the version only
-          # reaches the packument a few minutes after the upload returns.
-          for attempt in $(seq 1 30); do
-            if npm view "@yann9/dsh-git-workbench@${version}" version \
-              --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
-              break
-            fi
-            echo "waiting for ${version} to appear on npm (${attempt}/30)"
-            sleep 10
-          done
-          npm view "@yann9/dsh-git-workbench@${version}" version \
-            --registry=https://registry.npmjs.org/ >/dev/null
-          dir="$(mktemp -d)"
-          cd "$dir"
-          npm init -y >/dev/null
-          npm install --no-audit --no-fund --prefer-online \
-            @yann9/dsh-git-workbench@"${version}"
-          root=node_modules/@yann9/dsh-git-workbench
-          test -f "$root/cordis.patch.yml"
-          test -f "$root/src/index.js"
-          test -f "$root/src/client/browser.js"
-          for chunk in i18n styles core ui shell panes diff; do
-            test -f "$root/src/client/client.${chunk}.js"
-          done
-          test -f "$root/locale/zh.json"
-          test -f "$root/locale/en.json"
-          grep -q "name: '@yann9/dsh-git-workbench'" "$root/cordis.patch.yml"
-          echo "installed payload ok"
+          {
+            echo "### npm staged publish"
+            echo
+            echo "The tarball of \`${VERSION}\` is on npm's staging queue. It is **not**"
+            echo "installable until it is approved with 2FA:"
+            echo
+            echo '```bash'
+            echo "npm stage approve ${STAGE_ID} --registry=https://registry.npmjs.org/"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "::notice::${VERSION} is staged as ${STAGE_ID}; approve it with 'npm stage approve ${STAGE_ID}'"
