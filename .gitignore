@@ -3,6 +3,7 @@ node_modules/
 *.log
 .DS_Store
 .probe/
+.qoder/
 
 # internal design journal and local experiment notes, not published
 docs/internal/
