@@ -18,11 +18,13 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         node: [22, 24]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
+          # The suite needs no dependencies, so there is nothing to cache.
+          package-manager-cache: false
 
       # The suite creates real repositories; git needs an identity and must not
       # rewrite line endings, otherwise the CRLF-sensitive cases change meaning.

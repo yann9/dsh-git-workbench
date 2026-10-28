@@ -17,11 +17,13 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         node: [22, 24]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
+          # The suite needs no dependencies, so there is nothing to cache.
+          package-manager-cache: false
 
       # The suite creates real repositories; git needs an identity and must not
       # rewrite line endings, otherwise the CRLF-sensitive cases change meaning.
@@ -45,7 +47,7 @@ jobs:
       # so there is no NPM_TOKEN anywhere in the repository or its secrets.
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The notes diff this tag against the previous one, so the whole
           # tag history has to be present.
@@ -53,9 +55,11 @@ jobs:
 
       # Trusted publishing needs npm CLI >= 11.16; Node 24 ships a new enough
       # one, Node 22 does not.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
+          # The suite needs no dependencies, so there is nothing to cache.
+          package-manager-cache: false
 
       - name: Check the npm CLI can do trusted publishing
         run: |
