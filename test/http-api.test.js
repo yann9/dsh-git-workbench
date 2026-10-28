@@ -443,6 +443,10 @@ test('a paused operation is reported and can be aborted; untracked paths can be 
     // Rewriting .gitignore dropped the scratch.log rule, so it is back in the list.
     const ignored = await readStatus()
     assert.deepEqual(ignored.files.map((file) => file.path), ['.gitignore', 'scratch.log'])
+    // A name gitignore reads as syntax (`!` negation, `#` comment) is escaped.
+    await writeFile(path.join(dir, '!keep.txt'), 'x\n')
+    assert.equal((await post('/api/ignore', { files: ['!keep.txt'] })).body.added, 1)
+    assert.equal(await readFile(path.join(dir, '.gitignore'), 'utf8'), 'keep me\ndebug.out\n\\!keep.txt\n')
     assert.ok((await post('/api/ignore', { files: ['../escape'] })).status >= 400)
   } finally {
     await new Promise((resolve) => server.close(resolve))
@@ -679,6 +683,36 @@ test('listing workspaces does not require the default dir to be a repository', a
   } finally {
     await new Promise((resolve) => server.close(resolve))
     await rm(outside, { recursive: true, force: true })
+  }
+})
+
+test('a workspace whose folder disappeared does not break the list', async () => {
+  // One stale registry entry (deleted folder, unmounted drive) used to reject
+  // the whole /workspaces answer — the endpoint the client starts from.
+  const dir = await makeRepo()
+  const vanishedParent = await makeTempDir('dsh-git-vanished-')
+  const vanished = path.join(vanishedParent, 'gone')
+  const ctx = {
+    get: (id) => (id === 'workspaceRegistry'
+      ? {
+          list: () => [
+            { id: 'live', title: 'live', path: dir, updatedAt: new Date().toISOString() },
+            { id: 'gone', title: 'gone', path: vanished, updatedAt: new Date().toISOString() },
+          ],
+        }
+      : undefined),
+  }
+  const { server, base } = await startServer(dir, { ctx })
+  try {
+    const response = await fetch(`${base}/api/workspaces`)
+    const payload = await response.json()
+    assert.equal(response.status, 200, JSON.stringify(payload))
+    assert.equal(payload.workspaces.find((entry) => entry.id === 'gone').isRepo, false)
+    assert.equal(payload.workspaces.find((entry) => entry.id === 'live').isRepo, true)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    await rm(dir, { recursive: true, force: true })
+    await rm(vanishedParent, { recursive: true, force: true })
   }
 })
 

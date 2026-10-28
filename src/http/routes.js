@@ -178,7 +178,8 @@ export function createHandler(service, options = {}) {
       sendJson(res, 404, { error: 'not found' })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      if (!res.headersSent) sendJson(res, 500, { error: message })
+      const status = Number(/** @type {any} */ (error)?.statusCode) || 500
+      if (!res.headersSent) sendJson(res, status, { error: message })
       else res.end()
     }
   }
@@ -585,7 +586,11 @@ async function readJson(req) {
   let size = 0
   for await (const chunk of req) {
     size += chunk.length
-    if (size > MAX_BODY) throw new Error('request body too large')
+    if (size > MAX_BODY) {
+      const error = new Error('request body too large')
+      /** @type {any} */ (error).statusCode = 413
+      throw error
+    }
     chunks.push(chunk)
   }
   if (size === 0) return {}

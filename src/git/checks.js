@@ -9,6 +9,7 @@
 import { spawn } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
+import { killTree } from './exec.js'
 
 /** Scripts that start a server or watch loop: a check run would never finish. */
 const LONG_RUNNING = /^(start|dev|serve|watch|preview|storybook)(:|$)/i
@@ -186,18 +187,4 @@ export async function runPackageCheck(root, script) {
       })
     })
   })
-}
-
-/** Kill the script and everything it spawned. */
-function killTree(child) {
-  if (!child.pid) return
-  if (process.platform === 'win32') {
-    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
-    return
-  }
-  try {
-    process.kill(-child.pid, 'SIGKILL')
-  } catch {
-    child.kill('SIGKILL')
-  }
 }

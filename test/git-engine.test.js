@@ -384,6 +384,12 @@ test('invalid paths and revisions are refused', async () => {
     await assert.rejects(() => service.diff({ file: '../../etc/passwd' }), /escapes the repository/)
     await assert.rejects(() => service.showCommit({ sha: '--upload-pack=touch /tmp/x' }), /invalid revision/)
     await assert.rejects(() => service.commit({ message: '   ' }), /message is empty/)
+    // The read routes take the same revision guard: a value that starts with a
+    // dash must never reach git as an option (`--output` writes a file).
+    await assert.rejects(() => service.diff({ rev: '--output=owned.txt' }), /invalid revision/)
+    await assert.rejects(() => service.commitFile(dir, '--output=owned.txt', 'a.txt'), /invalid revision/)
+    await assert.rejects(() => service.blame({ file: 'a.txt', rev: '--contents=../../etc/passwd' }), /invalid revision/)
+    await assert.rejects(() => readFile(path.join(dir, 'owned.txt')), /ENOENT/)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

@@ -117,7 +117,7 @@ export function registerTools(ctx, service, defineTool) {
   register({
     name: 'git_stage',
     description:
-      'Stage or unstage changes. mode=file moves the whole file, mode=hunk moves one hunk by index, mode=lines moves individual lines inside a hunk (1-based hunk numbering as printed by git_diff).',
+      'Stage or unstage changes. mode=file moves the whole file, mode=hunk moves one hunk by index, mode=lines moves individual lines inside a hunk (0-based everywhere: the first hunk is 0, the first line of a hunk is 0).',
     parameters: {
       dir: { type: 'string', description: 'Repository path.' },
       file: { type: 'string', required: true, description: 'Repo-relative path.' },

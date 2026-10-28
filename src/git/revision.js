@@ -108,6 +108,9 @@ async function refsSignature(gitDir) {
       if (entry.isDirectory()) roots.push(full)
       else parts.push(`${entry.name}:${await statOrNull(full)}`)
     }
+    // The directory's own mtime moves when a ref is added or removed, so a
+    // change past the walk budget still changes the token.
+    parts.push(`${dir}:${await statOrNull(dir)}`)
   }
   return hashOf(parts.sort())
 }

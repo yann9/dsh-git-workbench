@@ -185,6 +185,7 @@ export class GitService {
    * @param {boolean} [input.full] whole-file context instead of the usual 3 lines
    */
   async diff(input) {
+    if (input.rev) assertRev(input.rev)
     const root = await this.resolveDir(input.dir)
     const args = ['diff', '--no-textconv', '--no-color', '--no-ext-diff', `-U${input.full ? FULL_CONTEXT : 3}`, '--find-renames']
     if (input.ignoreWhitespace) args.push('-w')
@@ -209,6 +210,7 @@ export class GitService {
    * @param {string} file
    */
   async commitFile(dir, sha, file, options = {}) {
+    assertRev(sha)
     assertSafePath(file)
     const root = await this.resolveDir(dir)
     const parents = await runGit(root, ['rev-list', '--parents', '-n', '1', sha], { allowFailure: true })
@@ -548,6 +550,7 @@ export class GitService {
    * @param {string} [input.rev]
    */
   async blame(input) {
+    if (input.rev) assertRev(input.rev)
     assertSafePath(input.file)
     const root = await this.resolveDir(input.dir)
     const [lines, content] = await Promise.all([
@@ -1034,7 +1037,10 @@ export class GitService {
       }
       const lines = text.split(/\r?\n/)
       const known = new Set(lines.map((line) => line.trim()))
-      const added = files.filter((pattern) => !known.has(pattern) && !known.has(`/${pattern}`) && !known.has(pattern.replace(/^\//, '')))
+      // A worktree path is a literal name, not a pattern: escape the two
+      // characters gitignore reads as syntax at the start of a line.
+      const patterns = files.map((file) => (file.startsWith('!') || file.startsWith('#') ? `\\${file}` : file))
+      const added = patterns.filter((pattern) => !known.has(pattern) && !known.has(`/${pattern}`) && !known.has(pattern.replace(/^\//, '')))
       if (added.length > 0) {
         const prefix = text === '' || text.endsWith('\n') ? text : `${text}\n`
         await writeFile(file, `${prefix}${added.join('\n')}\n`, 'utf8')
@@ -1771,7 +1777,7 @@ export class GitService {
 export function assertSafePath(file) {
   if (typeof file !== 'string' || file === '') throw new Error('missing file path')
   if (file.startsWith('-')) throw new Error(`refusing a path that looks like a flag: ${file}`)
-  if (file.includes('\u0000')) throw new Error('path contains NUL')
+  if (/[\u0000\r\n]/.test(file)) throw new Error('path contains a control character')
   const normalized = path.posix.normalize(file.replaceAll('\\', '/'))
   if (normalized.startsWith('../') || normalized === '..') throw new Error(`path escapes the repository: ${file}`)
 }

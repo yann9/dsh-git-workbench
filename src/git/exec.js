@@ -171,8 +171,19 @@ export function runGit(cwd, args, options = {}) {
     let timer = null
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
+        if (settled) return
         timedOut = true
-        child.kill()
+        trace.timedOut = true
+        killTree(child)
+        // `close` may never come when a grandchild (ssh, git-remote-https)
+        // keeps the pipes open, so settle here instead of waiting for it —
+        // the caller may hold the write lock.
+        fail(new GitError(`git ${args[0]}: timed out after ${timeoutMs}ms`, {
+          code: -1,
+          stdout: Buffer.concat(out).toString('utf8'),
+          stderr: 'timeout',
+          argv,
+        }))
       }, timeoutMs)
       timer.unref?.()
     }
@@ -262,7 +273,6 @@ function childEnv(extra) {
     GIT_TERMINAL_PROMPT: '0',
     LC_ALL: 'C',
     LANG: 'C',
-    GIT_TERMINAL_PROMPT: '0',
     GIT_ASKPASS: 'echo',
     GIT_OPTIONAL_LOCKS: '0',
     ...extra,
@@ -278,6 +288,25 @@ function formatGitFailure(args, result) {
   /** @type {string[]} */
   const lines = detail.split('\n').slice(0, 12)
   return `git ${args.filter((a) => !a.startsWith('-c') && !a.startsWith('--no-pager')).join(' ')} failed (exit ${result.code})${lines.length ? `: ${lines.join('\n')}` : ''}`
+}
+
+/**
+ * Kill a child and everything it spawned. On Windows git's remote helpers
+ * (ssh, git-remote-https) are separate processes that outlive `child.kill()`
+ * and keep the pipes open.
+ * @param {import('node:child_process').ChildProcess} child
+ */
+export function killTree(child) {
+  if (!child.pid) return
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+    return
+  }
+  try {
+    process.kill(-child.pid, 'SIGKILL')
+  } catch {
+    child.kill('SIGKILL')
+  }
 }
 
 /**

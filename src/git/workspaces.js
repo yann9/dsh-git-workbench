@@ -87,10 +87,17 @@ async function readRegistry(ctx) {
  * @returns {Promise<WorkspaceEntry>}
  */
 async function classify(workspace) {
-  const result = await runGit(workspace.path, ['rev-parse', '--show-toplevel', '--abbrev-ref', 'HEAD'], {
-    allowFailure: true,
-    env: {},
-  })
+  let result
+  try {
+    result = await runGit(workspace.path, ['rev-parse', '--show-toplevel', '--abbrev-ref', 'HEAD'], {
+      allowFailure: true,
+      env: {},
+    })
+  } catch {
+    // The folder is gone (deleted, unmounted drive): one stale entry must not
+    // take the whole workspace list down with it.
+    return { ...workspace, isRepo: false, repoRoot: null, branch: null }
+  }
   if (result.code !== 0) {
     return { ...workspace, isRepo: false, repoRoot: null, branch: null }
   }
