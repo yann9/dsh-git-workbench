@@ -56,10 +56,10 @@ Conventions:
 The images in the docs come from a real DSH instance (an isolated data directory — never point it at the `~/.dsh` you use day to day):
 
 - Viewport **1600 × 900**, `deviceScaleFactor: 2`; the right-hand workbench panel is pinned at **about 360 px** (drag the right sidebar's `col-resize` splitter; the script drags it explicitly every run), leaving the conversation column on the left. Diff and conflict need the whole main area (collapse the right sidebar), otherwise they fall back to the unified view.
-- One **light** shot per surface, named `docs/assets/<surface>.png`:
-  `commit-pane`, `diff`, `history`, `conflict`, `stash-dialog`. The plugin follows the host theme, so there is no separate dark set.
-- A second set for the English UI, with `-en` in the file name: `docs/assets/<surface>-en.png`.
-  Switch the host language in **Settings (Ctrl+Alt+,) → General → Language**; switch back to Chinese when done.
+- One **light** shot per surface, in the English UI, named `docs/assets/<surface>.png`:
+  `commit-pane`, `diff`, `history`, `conflict`, `stash-dialog`. The bare name is the English one, matching the documents. The plugin follows the host theme, so there is no separate dark set.
+- A second set in the Chinese UI, with `.zh` in the file name: `docs/assets/<surface>.zh.png`.
+  Switch the host language in **Settings (Ctrl+Alt+,) → General → Language**; switch back to English when done.
 - Keep a real conversation in the main area (not the blank start page), and let a real account generate the commit message; the stash dialog, diff and conflict reuse the same conversation so no large empty area shows.
 - Crop the browser chrome only, never the interface; no real path, branch name or commit message from the user's repository — use a demo repository.
 - Key interaction states (a read-only badge, a conflict count, a network operation in progress) deserve their own shot, but do not build collages or annotations for them.

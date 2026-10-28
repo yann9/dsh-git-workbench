@@ -77,6 +77,16 @@ function links(file) {
 
 const isExternal = (target) => /^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('//')
 
+/** Inline images only, outside fenced blocks: ![alt](target). */
+function images(file) {
+  const out = []
+  for (const { line, fenced } of lines(file)) {
+    if (fenced) continue
+    for (const match of line.matchAll(/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) out.push(match[1])
+  }
+  return out
+}
+
 test('every document ships in both languages with the same structure', () => {
   for (const [en, zh] of PAIRS) {
     for (const file of [en, zh]) assert.ok(existsSync(path.join(root, file)), `${file} is missing`)
@@ -114,6 +124,25 @@ test('every relative link in the docs resolves, anchors included', () => {
       const anchor = decodeURIComponent(rawAnchor).toLowerCase()
       const anchors = new Set(headings(resolved).map((h) => h.anchor))
       if (!anchors.has(anchor)) problems.push(`${file}: ${target} → no "#${anchor}" heading in ${resolved}`)
+    }
+  }
+  assert.deepEqual(problems, [])
+})
+
+test('a screenshot is in the language of the document that shows it', () => {
+  const problems = []
+  for (const file of PAIRS.flat()) {
+    const zhSource = file.endsWith('.zh.md')
+    for (const target of images(file)) {
+      if (isExternal(target)) continue
+      const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(file), target))
+      const zhTwin = resolved.replace(/\.png$/, '.zh.png')
+      if (zhSource && !resolved.endsWith('.zh.png') && existsSync(path.join(root, zhTwin))) {
+        problems.push(`${file}: ${target} shows the English screenshot, but ${zhTwin} exists`)
+      }
+      if (!zhSource && resolved.endsWith('.zh.png')) {
+        problems.push(`${file}: ${target} is a Chinese screenshot in an English document`)
+      }
     }
   }
   assert.deepEqual(problems, [])

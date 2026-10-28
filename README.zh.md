@@ -13,7 +13,7 @@
 
 [English](README.md) · [中文](README.zh.md) · [功能清单](docs/features.zh.md) · [HTTP API](docs/api.zh.md) · [架构](docs/architecture.zh.md) · [设计取舍](docs/jetbrains-parity.zh.md) · [开发与发布](docs/development.zh.md)
 
-![提交页签与变更列表](docs/assets/commit-pane.png)
+![提交页签与变更列表](docs/assets/commit-pane.zh.png)
 
 ---
 
@@ -35,11 +35,11 @@ DSH 的右侧栏是可拖动的页签区（能拖到别的面板、拆成第二�
 
 | 差异视图（并排、行内词级高亮） | 历史页（提交图 + 表头排序） |
 |---|---|
-| ![差异视图](docs/assets/diff.png) | ![历史页](docs/assets/history.png) |
+| ![差异视图](docs/assets/diff.zh.png) | ![历史页](docs/assets/history.zh.png) |
 | **冲突三方视图** | **储藏（命名 + 部分文件）** |
-| ![冲突视图](docs/assets/conflict.png) | ![储藏弹窗](docs/assets/stash-dialog.png) |
+| ![冲突视图](docs/assets/conflict.zh.png) | ![储藏弹窗](docs/assets/stash-dialog.zh.png) |
 
-深色主题完全跟随宿主，没有自己的主题开关，因此不再单独保留深色截图。同一组界面的英文版截图也在同目录（`*-en.png`），[英文 README](README.md) 用的是那套。
+深色主题完全跟随宿主，没有自己的主题开关，因此不再单独保留深色截图。同一组界面的中文版截图也在同目录（`*.zh.png`），本文件用的是那套。
 
 ## 安装
 
