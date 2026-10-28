@@ -56,7 +56,13 @@ dsh web
 
 Open the `?token=...` URL printed by the server. The **Commit** and **History** tabs are available from the sidebar's `+` guide page, and the branch chip in the session header works out of the box.
 
-If the profile does not register the bundle automatically (occasionally happens with `link:` / `file:` installs), add `"@yann9/dsh-git-workbench"` to `dsh.profile.bundles` in `~/.dsh/profiles/web/package.json`.
+If the profile does not register the bundle automatically (occasionally happens with `link:` / `file:` installs), add the entry yourself — same effect as `plugin add`:
+
+```json
+"dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@yann9/dsh-git-workbench"] } }
+```
+
+A `file:` install copies the code, so a change needs another `add`; use `link:` while developing — one restart is enough, at the price of maintaining that bundle entry yourself.
 
 **Upgrade and remove** (also needs a `dsh web` restart):
 
@@ -90,6 +96,8 @@ Everything is editable in **Settings → Plugins → Git workbench**, or in the 
         llmProvider: ''                # empty: the route DSH has selected
         llmModel: ''                   # empty: that route's selected model
 ```
+
+Unwritten keys take the defaults above. `readOnly: true` turns the workbench into a read-only review panel: staging, committing, branches, the network and conflict resolution are all disabled, and the HTTP write endpoints return 403 (except `/config`).
 
 ## Highlights
 
@@ -125,10 +133,22 @@ The full 50+ item comparison against JetBrains is in [docs/features.md](docs/fea
 | Recall a previous message in an empty box | `↑` / `↓` |
 | Stage selected lines | click the `+` / `−` at the line head to select, then **Stage selected lines** |
 
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [docs/features.md](docs/features.md) | The full item-by-item comparison against JetBrains, layout breakpoints, known limitations, roadmap |
+| [docs/api.md](docs/api.md) | Every `/dsh-git/api` endpoint, its parameters, caching and CSRF conventions, plus the 8 tools for the model |
+| [docs/architecture.md](docs/architecture.md) | The host / client split, DSH slots, state synchronization, localization, security model |
+| [docs/jetbrains-parity.md](docs/jetbrains-parity.md) | Why it does not copy JetBrains, why there is no iframe, why read-only is a rendering path |
+| [docs/development.md](docs/development.md) | The development loop, tests, the dev server, screenshot conventions, the release checklist for GitHub / npm |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | The checks and conventions to follow before opening a PR |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
+
 ## Development
 
 ```bash
-npm test                     # 104 tests against real git repositories
+npm test                     # 137 tests against real git repositories
 
 node scripts/dev-server.js <repo> 5178   # API only, no UI
 ```
@@ -137,7 +157,7 @@ No build step: host and client are plain ESM, so `link:` + restart is the whole 
 
 ## Security
 
-Every git call is `spawn('git', argv)` with **no shell**; writes are serialized; paths are validated against `..` and option injection; cross-origin requests are rejected; `readOnly: true` blocks all writes; no credentials are ever collected and network operations never prompt (120 s timeout, `GIT_TERMINAL_PROMPT=0`). Details: [docs/architecture.md](docs/architecture.md#安全模型).
+Every git call is `spawn('git', argv)` with **no shell**; writes are serialized; paths are validated against `..` and option injection; cross-origin requests are rejected; `readOnly: true` blocks all writes; no credentials are ever collected and network operations never prompt (120 s timeout, `GIT_TERMINAL_PROMPT=0`). Details: [docs/architecture.md](docs/architecture.md#security-model).
 
 ## Versioning
 

@@ -1,103 +1,103 @@
 # HTTP API
 
-所有接口都挂在 `/dsh-git/api` 下。`dir` 参数指定仓库目录（绝对路径）：缺省用配置里的 `repoPath`，面板总是传当前会话的 cwd。接口本身与 UI 无关——任何客户端都可以直接复用；插件自带的浏览器组件只是它的一个消费者。
+Every endpoint lives under `/dsh-git/api`. The `dir` parameter names the repository directory (absolute path): it defaults to the configured `repoPath`, and the panel always passes the current session's cwd. The API has nothing to do with the UI — any client can reuse it directly; the plugin's own browser components are just one consumer.
 
 ```
 GET  /dsh-git/api/status?dir=<abs-path>
 ```
 
-## 读接口
+## Read endpoints
 
-| 方法 | 路径 | 说明 |
+| Method | Path | Description |
 |---|---|---|
-| GET | `/rev` | 仓库修订 token（HEAD + index/refs 元数据），所有 GET 的 ETag 来源 |
-| GET | `/events` | SSE：仓库变化时推送新的 `rev`，客户端无需轮询 |
-| GET | `/info` | 仓库根、gitDir、是否 unborn、remotes |
-| GET | `/status` | 分支 / upstream / ahead-behind + 文件列表（含 conflicted 与进行中的操作） |
-| GET | `/console` | 当前仓库最近 200 次 git 调用的 argv、退出码、耗时与截断后的输出 |
-| GET | `/workspaces` | DSH 工作区注册表，并标注哪些是 Git 仓库 |
-| GET | `/overview` | 整个工作区的改动，一次返回每个文件的 staged / unstaged 两侧 |
-| GET | `/turn?session=&seq=` | 会话某一轮的只读快照（来自 `ctx.workspaceChanges`） |
-| GET | `/commit-file?sha=&file=&ignoreWhitespace=` | 某次提交里单个文件的差异（`git diff <parent> <sha>`，只读来源） |
-| GET | `/diff?file=&staged=&rev=&ignoreWhitespace=` | 结构化 diff（一侧） |
-| GET | `/file?file=&ignoreWhitespace=` | 同一文件的 staged 与 unstaged 两侧 |
-| GET | `/log?limit=&all=&ref=` | 提交 DAG，可按分支 / tag 限定 |
-| GET | `/commit?sha=&ignoreWhitespace=` | 单个提交的元信息 + 全量 diff |
-| GET | `/message?rev=` | 单条提交信息（Amend / Reword 预填） |
-| GET | `/branches` | 本地 / 远程分支 + tags（含 upstream） |
-| GET | `/remotes` | 远程仓库列表（名称 + fetch 地址） |
-| GET | `/blame?file=&rev=` | 逐行 annotate |
-| GET | `/stash` | 储藏列表 |
-| GET | `/stash-show?ref=&ignoreWhitespace=` | 单条储藏的只读预览（文件列表，含未跟踪文件） |
-| GET | `/stash-file?ref=&file=&ignoreWhitespace=` | 单条储藏里某个文件的 diff |
-| GET | `/untracked` | 未跟踪文件内容（合成 diff） |
-| GET | `/config` | 当前配置（默认值填充完整） |
-| GET | `/checks` | 仓库 `package.json` 的可运行脚本与包管理器；`reason` 说明无脚本 / 无效文件的原因 |
-| GET | `/compare?left=&right=&limit=` | 两个 ref 的 `ahead/behind` 与两侧各自独有的提交 |
-| GET | `/rebase-plan?base=` | 预览 `base..HEAD` 的提交（旧→新，含 merge 标记）；工作区脏、base 不是 HEAD 祖先、含 merge 或超过 100 条时说明原因并拒绝 |
+| GET | `/rev` | Repository revision token (HEAD + index/refs metadata); the ETag source for every GET |
+| GET | `/events` | SSE: pushes the new `rev` when the repository changes, so the client never polls |
+| GET | `/info` | Repository root, gitDir, whether it is unborn, remotes |
+| GET | `/status` | Branch / upstream / ahead-behind + file list (including conflicted files and any operation in progress) |
+| GET | `/console` | The last 200 git invocations in this repository: argv, exit code, duration and truncated output |
+| GET | `/workspaces` | The DSH workspace registry, marked with which entries are Git repositories |
+| GET | `/overview` | The whole workspace's changes: each file's staged and unstaged sides in one response |
+| GET | `/turn?session=&seq=` | Read-only snapshot of one session turn (from `ctx.workspaceChanges`) |
+| GET | `/commit-file?sha=&file=&ignoreWhitespace=` | One file's diff inside a commit (`git diff <parent> <sha>`, a read-only source) |
+| GET | `/diff?file=&staged=&rev=&ignoreWhitespace=` | Structured diff (one side) |
+| GET | `/file?file=&ignoreWhitespace=` | The staged and unstaged sides of the same file |
+| GET | `/log?limit=&all=&ref=` | The commit DAG, optionally narrowed to a branch / tag |
+| GET | `/commit?sha=&ignoreWhitespace=` | One commit's metadata plus its full diff |
+| GET | `/message?rev=` | A single commit message (to prefill Amend / Reword) |
+| GET | `/branches` | Local / remote branches + tags (with upstreams) |
+| GET | `/remotes` | Remote list (name + fetch URL) |
+| GET | `/blame?file=&rev=` | Line-by-line annotate |
+| GET | `/stash` | Stash list |
+| GET | `/stash-show?ref=&ignoreWhitespace=` | Read-only preview of one stash (file list, including untracked files) |
+| GET | `/stash-file?ref=&file=&ignoreWhitespace=` | The diff of one file inside a stash |
+| GET | `/untracked` | Untracked file contents as a synthetic diff |
+| GET | `/config` | The current configuration (defaults filled in) |
+| GET | `/checks` | The repository's `package.json` scripts that can run, plus the package manager; `reason` explains why there are none / the file is invalid |
+| GET | `/compare?left=&right=&limit=` | Two refs' `ahead/behind` and the commits unique to each side |
+| GET | `/rebase-plan?base=` | Preview the commits in `base..HEAD` (old to new, merge markers included); refuses with a reason when the worktree is dirty, base is not an ancestor of HEAD, a merge is involved, or there are more than 100 commits |
 
-## 写接口
+## Write endpoints
 
-| 方法 | 路径 | 说明 |
+| Method | Path | Description |
 |---|---|---|
-| POST | `/config` | 合并保存配置；即使 `readOnly` 也允许 |
-| POST | `/console/clear` | 清空当前仓库的控制台历史（不影响其他仓库） |
-| POST | `/pull` `/push` `/fetch` | 网络操作：`pull --no-rebase`、`push`、`fetch --prune`，120 s 超时；`push` 支持 `force`（`--force-with-lease`）与 `remote`（没有 upstream 时 `-u <remote> HEAD`；不传则用 `origin`，没有 `origin` 时用第一个远程仓库） |
-| POST | `/remote-add` `/remote-url` `/remote-remove` | `{name, url}` / `{name, url}` / `{name}`：管理远程仓库（`git remote add/set-url/remove`），名称与地址在宿主侧校验 |
-| POST | `/merge` | `{branch}`，`git merge --no-edit <branch>` |
-| POST | `/rebase-onto` | `{branch}`，`git rebase <branch>`：要求工作区干净且没有序列器在跑，目标不能是自己或未知 ref；冲突时返回 `{ok:false, paused:true, conflicts, output}` 并把 rebase 留在暂停态 |
-| POST | `/stage` | `{file, direction, mode:file\|hunk\|lines, hunk, lines, selection}`，或 `{files:[...]}` 批量 |
-| POST | `/revert` | 还原工作区中的 hunk / 行（只动 unstaged 侧） |
-| POST | `/resolve` | `{file, strategy: mark\|ours\|theirs\|both}`，整文件解决并 `git add` |
-| POST | `/conflict-view` | `{file}` → `{count, complete, base, segments[]}`；segments 按顺序分 `plain` / `conflict`，冲突段带 `ours\|theirs\|base\|line\|raw` |
-| POST | `/resolve-region` | `{file, region, strategy: ours\|theirs\|both\|custom, result?}`，只回答一个冲突块；`custom` 用 `result`（多行文本，不含冲突标记）替换该块，最后一块自动 `git add`，返回 `{remaining}` |
-| POST | `/rebase` | `{base, entries:[{hash, action: pick\|squash\|fixup\|drop}]}`；正常结束返回 `{ok, kept, folded, dropped}`，冲突或空重放时返回 `{ok:false, paused:true, conflicts, empty, output}` 并把序列器留在暂停态 |
-| POST | `/reword` | `{sha, message}`：HEAD 用 `commit --amend`，较早提交用同序 todo 的 reword 重放；返回 `{ok, amended, sha}`，序列器意外暂停时返回 `{ok:false, paused:true, conflicts, empty}`；要求工作区干净 |
-| POST | `/abort` | 中止进行中的操作：按 `.git` 标记选择 `merge` / `rebase` / `cherry-pick` / `revert` 的 `--abort`，没有操作时直接报错 |
-| POST | `/ignore` | `{files:[...]}`，把路径追加进仓库根 `.gitignore`，已存在的规则不重复写 |
-| POST | `/rollback` | `{files:[...]}`，撤销更改（恢复 / 取消暂存 / 删除未跟踪） |
+| POST | `/config` | Merge and save the configuration; allowed even under `readOnly` |
+| POST | `/console/clear` | Clear this repository's console history (other repositories are untouched) |
+| POST | `/pull` `/push` `/fetch` | Network operations: `pull --no-rebase`, `push`, `fetch --prune`, 120 s timeout; `push` accepts `force` (`--force-with-lease`) and `remote` (`-u <remote> HEAD` when there is no upstream; defaults to `origin`, or the first remote when `origin` is missing) |
+| POST | `/remote-add` `/remote-url` `/remote-remove` | `{name, url}` / `{name, url}` / `{name}`: manage remotes (`git remote add/set-url/remove`); names and URLs are validated host-side |
+| POST | `/merge` | `{branch}`, `git merge --no-edit <branch>` |
+| POST | `/rebase-onto` | `{branch}`, `git rebase <branch>`: requires a clean worktree and no sequencer running, and the target must be neither the current branch nor an unknown ref; a conflict returns `{ok:false, paused:true, conflicts, output}` and leaves the rebase paused |
+| POST | `/stage` | `{file, direction, mode:file\|hunk\|lines, hunk, lines, selection}`, or `{files:[...]}` in bulk |
+| POST | `/revert` | Discard a hunk / line in the worktree (touches only the unstaged side) |
+| POST | `/resolve` | `{file, strategy: mark\|ours\|theirs\|both}`, resolve a whole file and `git add` it |
+| POST | `/conflict-view` | `{file}` → `{count, complete, base, segments[]}`; segments come in order as `plain` / `conflict`, and conflict segments carry `ours\|theirs\|base\|line\|raw` |
+| POST | `/resolve-region` | `{file, region, strategy: ours\|theirs\|both\|custom, result?}`, answer one conflict block; `custom` replaces the block with `result` (multi-line text, no conflict markers); the last block is `git add`ed automatically; returns `{remaining}` |
+| POST | `/rebase` | `{base, entries:[{hash, action: pick\|squash\|fixup\|drop}]}`; a clean finish returns `{ok, kept, folded, dropped}`, a conflict or an empty replay returns `{ok:false, paused:true, conflicts, empty, output}` and leaves the sequencer paused |
+| POST | `/reword` | `{sha, message}`: HEAD goes through `commit --amend`, an earlier commit replays a same-order todo with reword; returns `{ok, amended, sha}`, and an unexpectedly paused sequencer returns `{ok:false, paused:true, conflicts, empty}`; requires a clean worktree |
+| POST | `/abort` | Abort the operation in progress: picks `--abort` for `merge` / `rebase` / `cherry-pick` / `revert` from the `.git` markers, and errors out when nothing is running |
+| POST | `/ignore` | `{files:[...]}`, append the paths to the repository-root `.gitignore`; rules that already exist are not written twice |
+| POST | `/rollback` | `{files:[...]}`, discard changes (restore / unstage / delete untracked) |
 | POST | `/tag` `/delete-tag` `/push-tag` | `{name, ref?, force?}` / `{name}` / `{name}` |
-| POST | `/cherry-pick` `/revert-commit` | `{hashes\|sha}`；冲突时保留序列器状态供面板继续处理 |
-| POST | `/reset` | `{mode: soft\|mixed\|hard, ref, confirm}`，hard 必须显式 `confirm` |
-| POST | `/rename-branch` | `{branch, name}`，先校验名称与同名冲突，再 `git branch -m` |
-| POST | `/set-upstream` `/unset-upstream` | `{branch, upstream}` / `{branch}`：把本地分支指向一个已存在的远程分支，或解除跟踪关系；两侧的 ref 必须存在，上游名按 `remote/branch` 两段校验 |
-| POST | `/switch` | `{ref}`，`git switch --detach <ref>` 检出任意版本 |
+| POST | `/cherry-pick` `/revert-commit` | `{hashes\|sha}`; on a conflict the sequencer state is kept so the panel can carry on |
+| POST | `/reset` | `{mode: soft\|mixed\|hard, ref, confirm}`; hard requires an explicit `confirm` |
+| POST | `/rename-branch` | `{branch, name}`: validate the name and check for a clash first, then `git branch -m` |
+| POST | `/set-upstream` `/unset-upstream` | `{branch, upstream}` / `{branch}`: point a local branch at an existing remote branch, or drop the tracking relationship; both refs must exist, and the upstream name is validated in its two `remote/branch` parts |
+| POST | `/switch` | `{ref}`, `git switch --detach <ref>` to check out any revision |
 | POST | `/commit` | `{message, amend}` |
-| POST | `/commit-paths` | `{files:[...], message}`：只提交这几个文件里已暂存的内容（临时 index），其余暂存内容原样留在暂存区；重命名按新旧两个路径处理，不会被顺手带进提交 |
-| POST | `/check` | `{script}`：非交互运行一个包脚本（120 s 超时、输出上限 120 k、超时杀进程树）；只读模式 403，脚本名严格白名单 |
-| POST | `/commit-message` | `{language?, provider?, model?}`，用 `ctx.llm` 依据暂存区起草提交信息 |
-| POST | `/checkout` | `{branch, create, from}`；远程分支自动建跟踪分支 |
-| POST | `/checkout-commit` | `{sha}`，分离 HEAD |
+| POST | `/commit-paths` | `{files:[...], message}`: commit only what these files have staged (temporary index), leaving the rest of the index as it was; renames are handled as both the old and the new path, so they are not swept into the commit |
+| POST | `/check` | `{script}`: run a package script non-interactively (120 s timeout, 120 k output cap, process tree killed on timeout); 403 under read-only, script names strictly allow-listed |
+| POST | `/commit-message` | `{language?, provider?, model?}`, draft a commit message from the index via `ctx.llm` |
+| POST | `/checkout` | `{branch, create, from}`; a remote branch gets a tracking branch automatically |
+| POST | `/checkout-commit` | `{sha}`, detached HEAD |
 | POST | `/delete-branch` | `{branch, force}` |
 | POST | `/stash` | `{action: push\|pop\|apply\|drop, ref}` |
 
-## 约定
+## Conventions
 
-**忽略空白**：`/diff`、`/file`、`/commit-file`、`/commit`、`/stash-show`、`/stash-file` 都接受 `ignoreWhitespace=1`，对应 `git diff -w`。该模式仅供查看：`-w` 的块索引与普通 diff 不同，`/stage` 与 `/revert` 会按未过滤的 diff 重新读取，因此客户端在过滤模式下禁用所有写操作。
+**Ignore whitespace**: `/diff`, `/file`, `/commit-file`, `/commit`, `/stash-show` and `/stash-file` all accept `ignoreWhitespace=1`, which maps to `git diff -w`. This mode is for reading only: `-w` computes different hunk indices than a plain diff, and `/stage` / `/revert` re-read the unfiltered diff, so the client disables every write while the filter is on.
 
-**缓存**：GET 响应带 `x-git-rev` 头。内容完全由 revision 决定的端点支持 `?rev=` 协商返回 `304`，并按 revision 在服务端记忆化。工作区、diff、stash、blame、branches（上游住在 `.git/config`，不在 revision 里）等易变端点永不缓存。
+**Caching**: GET responses carry an `x-git-rev` header. Endpoints whose contents are fully determined by the revision support `?rev=` negotiation and answer `304`, and are memoized server-side by revision. Volatile endpoints — worktree, diff, stash, blame, branches (upstreams live in `.git/config`, outside the revision) — are never cached.
 
-**CSRF**：`Origin` 与 `Host` 不匹配的请求一律 `403`——随便打开一个网页不能替你提交代码。
+**CSRF**: any request whose `Origin` does not match `Host` gets a `403` — opening some random web page must not be able to commit for you.
 
-**请求体**：上限 2 MB。所有写接口在 `readOnly: true` 时返回 `403`（`/config` 除外）。
+**Request bodies**: 2 MB limit. Every write endpoint returns `403` under `readOnly: true` (except `/config`).
 
-**错误**：git 的拒绝会带原始输出返回，客户端经 `localizeError` 转成中文/英文句子；需要用户继续操作的失败（冲突、空重放）不是错误，而是 `{ok:false, paused:true, ...}`，序列器状态保留在仓库里。
+**Errors**: git's refusals come back with the original output, and the client turns them into a Chinese/English sentence through `localizeError`. A failure the user is meant to act on (a conflict, an empty replay) is not an error but `{ok:false, paused:true, ...}`, with the sequencer state left in the repository.
 
-**串行**：所有写操作经过同一把 `withWriteLock`，同一时刻只有一个 index 变更。两次重叠的 hunk 暂存如果并发，patch 的 pre-image 会互相失效。
+**Serialization**: every write goes through the same `withWriteLock`, so only one index change happens at a time. Two overlapping hunk stages running concurrently would invalidate each other's patch pre-image.
 
-## 给模型的工具
+## Tools for the model
 
-模型侧对应 8 个结构化工具，参数由 schema 约束，不让模型拼命令行：
+The model side has 8 structured tools with schema-constrained parameters, so the model never assembles a command line:
 
-| 工具 | 作用 |
+| Tool | Purpose |
 |---|---|
-| `git_status` | 分支、upstream、ahead/behind、文件列表 |
-| `git_diff` | 工作区或暂存区差异（结构化 hunk） |
-| `git_log` | 提交 DAG |
-| `git_show` | 单个提交的元信息与差异 |
-| `git_stage` | 暂存/取消暂存（文件、块、行） |
-| `git_commit` | 提交暂存区 |
-| `git_branch` | 列出 / 切换 / 新建分支 |
-| `git_blame` | 逐行作者 |
+| `git_status` | Branch, upstream, ahead/behind, file list |
+| `git_diff` | Worktree or index diff (structured hunks) |
+| `git_log` | The commit DAG |
+| `git_show` | One commit's metadata and diff |
+| `git_stage` | Stage / unstage (file, hunk, lines) |
+| `git_commit` | Commit the index |
+| `git_branch` | List / switch / create branches |
+| `git_blame` | Line-by-line authors |
 
-它们与面板走同一层 `GitService`，所以不存在"Agent 看到的状态和面板不一致"。
+They go through the same `GitService` layer as the panel, so there is no such thing as "the Agent sees a different state than the panel".

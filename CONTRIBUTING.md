@@ -1,52 +1,52 @@
-# 参与开发
+# Contributing
 
-## 先读这三份
+## Read these three first
 
-- [docs/architecture.md](docs/architecture.md)：host / client 各自负责什么，chunk 怎么分。
-- [docs/jetbrains-parity.md](docs/jetbrains-parity.md)：交互为什么长这样，第 9 节是新增 UI 时必须遵守的规则。
-- [docs/development.md](docs/development.md)：开发循环、测试、截图与发布。
+- [docs/architecture.md](docs/architecture.md): what host and client each own, and how the chunks are split.
+- [docs/jetbrains-parity.md](docs/jetbrains-parity.md): why the interaction looks the way it does; section 9 is the rulebook for any new UI.
+- [docs/development.md](docs/development.md): the development loop, tests, screenshots and releases.
 
-## 开发循环
+## Development loop
 
 ```bash
-dsh plugin --profile web add link:<仓库绝对路径>
-dsh web          # 改完代码重启
-npm test         # 104 个用例，真实 git 仓库
+dsh plugin --profile web add link:<absolute path of the repo>
+dsh web          # restart after a code change
+npm test         # 137 cases, against real git repositories
 ```
 
-没有构建步骤：不要引入打包器、不要生成产物。host 与 client 都必须能在 Node / 宿主模块系统里直接加载。
+There is no build step: do not introduce a bundler, do not generate artifacts. Both host and client must load directly in Node / the host's module system.
 
-## 代码约定
+## Code conventions
 
-- **所有 git 调用只走 `src/git/exec.js`**：`spawn('git', argv)`，不拼字符串、不经 shell。需要新命令时在那里加，不要在业务代码里再开一个 spawn。
-- **写操作必须进 `GitService`**，由 `withWriteLock` 串行化；不要绕过它直接改 index。
-- **host 返回值是 UI 的唯一事实来源**：客户端不要自行推导 ahead/behind、状态字母或可写性。
-- 注释用英文，只在"为什么"不明显时写一行。
-- 提交信息用 Conventional Commits：`feat:` / `fix:` / `docs:` / `chore:` / `refactor:`，正文说明动机。破坏性变更写 `feat(scope)!:` 或正文里的 `BREAKING CHANGE:`；GitHub Release 的说明就是按这些前缀分组的（见 [docs/development.md](docs/development.md)）。
+- **Every git call goes through `src/git/exec.js`**: `spawn('git', argv)`, no string concatenation, no shell. Add new commands there rather than opening another spawn in business code.
+- **Writes go through `GitService`** and are serialized by `withWriteLock`; never change the index around it.
+- **The host's response is the UI's only source of truth**: the client must not derive ahead/behind, status letters or writability itself.
+- Comments are in English and only one line, only where the "why" is not obvious.
+- Commit messages follow Conventional Commits: `feat:` / `fix:` / `docs:` / `chore:` / `refactor:`, with the motivation in the body. A breaking change is `feat(scope)!:` or a `BREAKING CHANGE:` in the body; the GitHub Release notes group by exactly these prefixes (see [docs/development.md](docs/development.md)).
 
-## 改 UI 时
+## When changing the UI
 
-- 文案必须在 `src/client/client.i18n.js` 里同时给出 `zh` 与 `en`；缺失会回退中文再回退键名，但不要让新功能只存在于一种语言。
-- 颜色只用 token：`--gwb-*` 与 `--dsw-alias-*`。文字色相用 `-ink` 变体，彩色底上的文字用 `--gwb-on-hue`；不要写死 `#fff` 或 `#ec1313`。
-- 任何会改写工作区的动作都要走统一的确认框；破坏性按钮写明动词、染红、焦点默认落在「取消」。
-- 面板最小宽度按 ~440px 检查一次：不能出现横向滚动，标签不能碎成 `or…`。
-- 浅色和深色各看一眼；`statusColor` 这类内联样式函数改了要同步 `test/client-pure.test.js` 的契约测试。
+- Copy must be added to both `zh` and `en` in `src/client/client.i18n.js`; a missing entry falls back to Chinese and then to the key, but a new feature must not exist in only one language.
+- Colors come from tokens only: `--gwb-*` and `--dsw-alias-*`. Text hues use the `-ink` variant, text on a colored surface uses `--gwb-on-hue`; never hard-code `#fff` or `#ec1313`.
+- Anything that rewrites the worktree goes through the shared confirmation dialog; a destructive button names its verb, is red, and parks focus on "Cancel".
+- Check the panel at its ~440 px minimum width: no horizontal scrolling, no label broken into `or…`.
+- Look at both light and dark; changing an inline style function such as `statusColor` means updating its contract test in `test/client-pure.test.js`.
 
-## 改 git 行为时
+## When changing git behaviour
 
-- 用真实仓库写用例，不要 mock git。需要破坏性状态时自己备份、自己还原，收尾核对 `git status`、`git diff` 哈希与 stash 列表。
-- 测试不能接触开发者日常使用的 DSH 数据目录（`~/.dsh`）；用临时目录或在独立数据目录里跑。
-- 错误信息要能在中文界面里读：新出现的 git 拒绝要加进 `localizeError` 的规则表。
+- Write cases against real repositories, never mock git. A case that needs destructive state backs it up and restores it itself, and checks `git status`, the `git diff` hash and the stash list at the end.
+- Tests must not touch the DSH data directory a developer uses day to day (`~/.dsh`); use a temporary directory or a separate data directory.
+- Errors have to read well in a Chinese interface: a new git refusal goes into the rule table in `localizeError`.
 
-## PR 检查清单
+## PR checklist
 
-- [ ] `npm test` 全绿
-- [ ] `node --check` 覆盖所有改动的 host / client 文件
-- [ ] 新增文案有中英文
-- [ ] 深色 / 浅色、宽栏 / 窄栏都看过
-- [ ] 文档同步：功能表（`docs/features.md`）、接口表（`docs/api.md`）、`CHANGELOG.md`
-- [ ] 没有把本机绝对路径、账号、token 写进代码或文档
+- [ ] `npm test` is green
+- [ ] `node --check` covers every changed host / client file
+- [ ] New copy exists in both Chinese and English
+- [ ] Dark / light and wide / narrow have all been looked at
+- [ ] Docs are in sync: the feature table (`docs/features.md`), the endpoint table (`docs/api.md`), `CHANGELOG.md`
+- [ ] No absolute path from your machine, account name or token went into code or docs
 
-## 安全
+## Security
 
-发现安全问题不要开公开 issue，见 [SECURITY.md](SECURITY.md)。
+Do not open a public issue for a security problem — see [SECURITY.md](SECURITY.md).

@@ -20,7 +20,9 @@
     "README.zh.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
+    "CONTRIBUTING.zh.md",
     "SECURITY.md",
+    "SECURITY.zh.md",
     "docs/*.md",
     "docs/assets"
   ],

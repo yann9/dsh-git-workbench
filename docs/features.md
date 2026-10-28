@@ -1,111 +1,111 @@
-# 功能清单：与 JetBrains 逐项对照
+# Feature list: item by item against JetBrains
 
-> 这张表回答一个问题：在 IDEA 里习惯的那个动作，这里有没有、边界在哪。
-> 设计取舍与"为什么不那么做"见 [design notes](jetbrains-parity.md)；接口层见 [api.md](api.md)。
+> This table answers one question: the move you are used to in IDEA — is it here, and where does it stop?
+> Design trade-offs and "why not do it that way" live in [design notes](jetbrains-parity.md); the interface layer is [api.md](api.md).
 
-## 暂存与提交
+## Staging and committing
 
-| JetBrains | 这里的实现 | 状态 |
+| JetBrains | How it works here | Status |
 |---|---|---|
-| Local Changes 树（Staged / Unstaged / Unversioned / Conflicts） | 四组可折叠列表，勾选框即暂存/取消暂存；冲突组另有解决动作 | ✅ |
-| 逐 Hunk 暂存 | Diff 块头「暂存此块」→ 裁剪 patch → `git apply --cached` | ✅ |
-| 逐行暂存 | 点行首 gutter 的 `+`/`−` 选中多行，再「暂存选中行」 | ✅ |
-| Commit 窗口（信息 + Amend + 提交） | 左侧底部面板，`Ctrl+Enter` 提交 | ✅ |
-| 变更列表（Changelist） | 面板里的改动按变更列表分组，默认列表之外可以新建命名列表；文件右键「移动到变更列表…」在列表之间搬家，列表头部「提交此列表」只提交这个列表里已暂存的文件——走临时 index，别的列表的暂存内容原样留在暂存区（已暂存的重命名不会被顺手带进别的提交）。分组存在浏览器里按仓库记，不写进仓库；列表可重命名，删除前有二次确认并说明文件会回到默认列表 | ✅ |
-| 提交前检查（Before Commit） | 提交栏「检查」菜单从 `package.json` 读取可运行脚本（自动识别 npm/pnpm/yarn/bun，过滤 `start`/`dev` 等长驻脚本），勾选按仓库持久化；提交前串行运行，失败弹窗给出命令、退出码、耗时与完整输出，默认取消并支持显式「仍然提交」；「立即运行所选检查」只跑检查、不提供提交入口 | ✅ |
-| 提交信息 AI 生成 | 提交面板的 `AI` 按钮（`Ctrl+G`），走会话同一个模型路由 | ✅ |
-| 提交信息复用 | 空提交框里 `↑`/`↓` 逐条召回最近的提交信息（有草稿时 `↑` 不会覆盖它，光标离开开头即交还给编辑），`最近信息` 菜单保留鼠标路径；键位写在提交框占位符和菜单 tooltip 里 | ✅ |
-| Undo Commit（撤销提交） | 只有 HEAD 行给「撤销提交…」：软重置到第一父提交，被撤销的改动原样回到暂存区；工作区里未暂存的编辑、未跟踪文件一个字节都不动，分支指针之外没有任何改写。根提交没有父提交，不显示该项；合并/变基/拣选暂停期间拒绝，避免把序列器从 HEAD 下抽走 | ✅ |
-| Reword（改写提交信息） | 历史页提交右键「修改提交信息…」：弹窗带出完整原文（多行可编辑，Ctrl+Enter 保存、Esc 取消），只改文字不动树。HEAD 直接 amend；较早提交走一次同序 rebase 的 reword 步骤，并在提示里说明后续哈希会变。工作区不干净时拒绝，合并/根提交给出明确原因 | ✅ |
+| Local Changes tree (Staged / Unstaged / Unversioned / Conflicts) | Four collapsible lists, the checkbox stages or unstages; the conflict group carries resolution actions of its own | ✅ |
+| Stage hunk by hunk | "Stage this hunk" on the diff block header → trim the patch → `git apply --cached` | ✅ |
+| Stage line by line | Click the `+`/`−` in the line gutter to select several lines, then "Stage selected lines" | ✅ |
+| Commit window (message + Amend + commit) | The bottom-left panel, `Ctrl+Enter` commits | ✅ |
+| Changelists | Changes in the panel are grouped by changelist; named lists can be created beyond the default one; "Move to changelist…" on a file moves it between lists, and a list's "Commit this list" commits only what that list has staged — through a temporary index, with the other lists' staged content left in the index untouched (a staged rename is not swept into someone else's commit). Grouping is stored in the browser per repository, never written into the repository; lists can be renamed, and deleting one asks twice and says the files go back to the default list | ✅ |
+| Before Commit checks | The "Checks" menu in the commit bar reads runnable scripts from `package.json` (detecting npm/pnpm/yarn/bun, filtering out long-running ones like `start`/`dev`), and the ticks persist per repository; checks run serially before the commit, and a failure opens a dialog with the command, exit code, duration and full output, defaulting to cancel with an explicit "Commit anyway"; "Run the selected checks now" runs only the checks and offers no commit | ✅ |
+| AI commit message | The `AI` button in the commit panel (`Ctrl+G`), through the same model routing the conversation uses | ✅ |
+| Commit-message recall | `↑`/`↓` in an empty message box walk back through recent messages (with a draft, `↑` does not overwrite it and the cursor leaving the start of the line hands editing back); the "Recent messages" menu keeps the mouse path; both keys are written in the box's placeholder and the menu tooltip | ✅ |
+| Undo Commit | Only the HEAD row offers "Undo commit…": a soft reset to the first parent, with the undone changes landing back in the index; unstaged edits and untracked files in the worktree are not touched by a single byte, and nothing but the branch pointer is rewritten. A root commit has no parent and does not show the item; it is refused while a merge/rebase/cherry-pick is paused, so the sequencer is never pulled out from under HEAD | ✅ |
+| Reword | "Edit commit message…" on a commit in the History page: the dialog loads the full original (multi-line and editable, `Ctrl+Enter` saves, `Esc` cancels) and changes text only, never the tree. HEAD goes through amend; an earlier commit replays a same-order rebase with a reword step, and the dialog says the later hashes will change. Refused on a dirty worktree, and a merge or root commit gets a concrete reason | ✅ |
 
-## 差异阅读
+## Reading diffs
 
-| JetBrains | 这里的实现 | 状态 |
+| JetBrains | How it works here | Status |
 |---|---|---|
-| 并排 / 统一 Diff | 工具栏切换，选择持久化到 localStorage | ✅ |
-| 行内 word-level 高亮 | 替换行的公共前后缀按词剔除（token LCS），统一与并排都只标记真正改动的词，与语法着色叠加 | ✅ |
-| 忽略空白差异（Ignore Whitespace） | 工具栏「忽略空白」开关（持久化）；只看非空白改动，开关状态用强调底色标出。该模式只读：块/行索引来自 `-w` 结果，暂存与丢弃会落到错误的行，因此块头按钮、文件暂存、行选择与 `Ctrl+Alt+R` 全部隐藏，头部标「忽略空白 · 只读」；过滤后没有差异时给出虚线空态卡和「显示全部差异」一键返回 | ✅ |
-| Diff 上下切换文件 | `Alt+↑/↓`、头部 `‹ n/m ›`，点 `3 / 5` 打开完整文件列表 | ✅ |
-| Annotate（Blame） | diff 头部 `追溯` 按钮（开/关同一个入口，标题写清快捷键与含义），逐行作者/提交/日期：同一提交的连续行只标一次（76 行 13 个标签），未提交行标 `未提交`，代码带语法着色，作者列与行号列 sticky——横向滚动看长行时不会丢掉"这行是谁写的" | ✅ |
-| 重命名识别 | 变更树里 `R` 行紧跟旧文件名（`app.spec.js tests ← app.test.js`），不再把它甩到行尾最右侧让人以为是另一列 | ✅ |
-| 文件历史 | 文件行菜单「显示文件历史」→ 历史页按路径过滤，筛选条上有可关闭的范围标签 | ✅ |
+| Side-by-side / unified diff | Toolbar toggle, the choice persists to localStorage | ✅ |
+| Inline word-level highlighting | The common prefix and suffix of a replaced line are stripped word by word (token LCS), so both unified and side-by-side mark only the words that really changed, layered under syntax coloring | ✅ |
+| Ignore Whitespace | An "Ignore whitespace" toggle in the toolbar (persisted); only non-whitespace changes are shown, and the state is flagged with an accent background. The mode is read-only: block/line indices come from the `-w` result, so staging or discarding would land on the wrong lines — therefore the block buttons, file staging, line selection and `Ctrl+Alt+R` are all hidden, the header reads "Ignore whitespace · read-only", and an empty result shows a dashed empty-state card with a one-click "Show all changes" | ✅ |
+| Move between files in a diff | `Alt+↑/↓`, the header's `‹ n/m ›`, and clicking `3 / 5` opens the full file list | ✅ |
+| Annotate (Blame) | The "Annotate" button in the diff header (one entry point for on and off, the title spells out the shortcut and the meaning): author/commit/date per line — consecutive lines from one commit are labelled once (13 labels across 76 lines), uncommitted lines read `Uncommitted`, the code keeps its syntax coloring, and the author and line-number columns are sticky, so scrolling horizontally through a long line never loses "who wrote this" | ✅ |
+| Rename detection | In the changes tree an `R` row is followed by the old file name (`app.spec.js tests ← app.test.js`), instead of flinging it to the far right of the row where it reads like another column | ✅ |
+| File history | "Show file history" in the file row's menu → the History page filtered by path, with a dismissable scope chip on the filter bar | ✅ |
 
-## 提交历史
+## Commit history
 
-| JetBrains | 这里的实现 | 状态 |
+| JetBrains | How it works here | Status |
 |---|---|---|
-| 提交图（分支泳道） | 「历史」页，DAG 分道 + 彩色连线 + 分支/HEAD 标签 | ✅ |
-| Commit 详情 + 文件级 Diff | 点提交即在右侧展开 | ✅ |
-| 历史页键盘导航 | `↑`/`↓` 逐条翻提交（列表跟随滚动、详情同步加载），`Home`/`End` 跳首尾，`Enter` 或双击提交行打开该提交的完整差异，`F5` 刷新 | ✅ |
-| 历史页读数 | 有筛选时头部改成 `匹配 4 / 11 次提交`（原来永远报总数，筛完看着像没生效）；提交哈希与提交信息都可一键复制（右键菜单 + 详情页点击）；分支标签与提交信息争宽度时标签先让位，完整名在悬停提示里 | ✅ |
-| 历史页多选提交 | `Ctrl/⌘` 点选追加、`Shift` 点选连选一段、`Ctrl+A` 全选当前可见的提交、`Esc` 清空；选中后长出一条工具条：左边是「已选 N 个提交」的计数徽标，右边把拣选 / 还原 / 复制哈希 / 复制信息收进一组按钮，把「仅显示所选」和「清除选择」收进第二组按钮。批量拣选与批量还原在宿主侧按提交的先后顺序重放（先写的那条先落），所以一批提交的结果和当初写下的顺序一致；右键选中行里的提交，菜单也针对整批而不是只针对那一条 | ✅ |
-| 历史页结构化筛选 | 历史页的搜索框认得 `author:` `message:` `hash:` `tag:` `branch:` `date:` 六种条件，值可加引号（`author:"Ada Lovelace"`），条件之间取交集；`date:` 认周期（`2026-10-15` 是那一天、`2026-10` 是那个月），前面可加 `>` `<` `>=` `<=`；认不出的 `xx:` 仍是普通词，所以 `fix: crash` 这种提交信息不会被漏掉；每个条件在框下方是一个能单独拿掉的芯片（蓝色是条件、灰色是自由文本、描边的是还没填值的字段），框右侧的 `▾` 列出全部字段，点一下就把前缀填进去 | ✅ |
-| 历史页按分组归类 | 筛选行右边多一个「不分组 ▾」控件，可以按**分支**、**作者**或**日期**把提交收进小节：每节一个可折叠的头（类型图标 + 名字 + 这一节的提交数），点一下收起整组；每组按自己的提交重画提交图，一组就是一组的历史；一条提交只进一个分组，没有分支指向的提交进「无分支」；归类只是排版，多选、拣选、还原照旧对整批提交生效，但 `Ctrl+A` 只选**看得见**的提交（收起来的那组不算） | ✅ |
-| 历史页的列 | 历史页是一张表：表头「提交信息 / 作者 / 日期 / 哈希」点一下按这一列排序（再点一次换方向），当前排序列带箭头；筛选行右边多一个「列 ▾」菜单，可以逐列开关显示（勾选后菜单不关，可以一次调好几列）。表头每列的右边缘有一条竖线，那就是拖动改宽的地方（鼠标移上去会变粗变蓝）：提交信息、提交图、作者、日期、哈希各自独立，**双击那条竖线即复位**；拖出的宽度记在本地。面板越宽，列能拖得越宽：底栏那样宽的时候把提交图列一路拖开，几十条泳道也看得全；面板被压窄时，超宽的列会被夹回能放下的宽度，不会把表格撑出横向滚动条。面板放不下所有列的诉求时，**你最后动过的那一列先拿到宽度**，其余列按各自能让出的比例退让；想换个优先级，就去拖那一列。**提交图只在历史顺序（日期由新到旧）下画**——换了排序，图表达的父子关系就不成立了，索性收起来；这时候筛选行会冒出一个「恢复提交图」的按钮，点一下就回到历史顺序。列太窄时按列自己所在的宽度退让：作者列（< 460px）和哈希列（< 340px）自动让位，表头和数据行一起退，两边始终对齐。排序方式和列的开关记在本地，下次打开还是这个样子 | ✅ |
-| 窄列里的分支标签 | 历史页每一行的分支 / 标签是**写全的名字**，不是碎片：面板压窄时提交信息先让位，标签保住名字（`origin/feature/diff-review` 还是 `origin/feature/diff-review`，不是 `or…`）。一行放不下的标签折成一个 `+N` 徽标，写明还有几个，悬浮提示里是折起来的那几个标签的全名；第一个标签（通常是当前分支）永远在，长到写不下时截短自己而不是被丢掉。当前分支的标签是实心的，其余是浅色的 | ✅ |
-| Cherry-pick / Revert / Reset | 提交行菜单：拣选、还原此提交、重置（软/硬）到此提交，破坏性动作全部二次确认 | ✅ |
-| Rebase（交互式） | 历史页提交右键「交互式变基到此提交」：弹窗按执行顺序列出 base 之后的提交，可上移/下移，逐条选 保留 / 合并（squash，保留两条信息）/ 折叠（fixup，只留前一条）/ 丢弃，底部实时显示「保留 x / y · 生成 z 个提交」；全丢弃或第一条就合并会被拦下并禁用按钮。冲突时顶部状态条亮红、写明冲突数，「继续」保持禁用直到冲突全部解决；重放变空时暂停并说明「这次提交没有新改动，点继续跳过」，再点一次收尾，全程不用回终端 | ✅ |
+| Commit graph (branch lanes) | The "History" page, a DAG split into lanes with colored edges and branch/HEAD labels | ✅ |
+| Commit details + per-file diff | Clicking a commit expands it on the right | ✅ |
+| Keyboard navigation in History | `↑`/`↓` step through commits (the list follows and the details load with it), `Home`/`End` jump to the ends, `Enter` or a double click opens that commit's full diff, `F5` refreshes | ✅ |
+| History readings | With a filter on, the header switches to `4 of 11 commits matched` (it used to always report the total, so a filter looked broken); commit hashes and messages are one-click copyable (context menu + click in the details); when a branch label and a message compete for width the label yields first, with the full name in the tooltip | ✅ |
+| Multi-select in History | `Ctrl/⌘` click appends, `Shift` click selects a run, `Ctrl+A` selects every commit currently visible, `Esc` clears; a selection grows a toolbar: a "N selected" count badge on the left, and on the right one group of buttons for cherry-pick / revert / copy hash / copy message and a second group for "Show only selected" and "Clear selection". Batch cherry-pick and batch revert replay in commit order host-side (the earlier one lands first), so a batch produces the same result as writing them out one by one in that order; the context menu on a selected row targets the whole batch, not just that one commit | ✅ |
+| Structured filtering in History | The History search box understands six conditions — `author:` `message:` `hash:` `tag:` `branch:` `date:` — with quotable values (`author:"Ada Lovelace"`), intersected with each other; `date:` accepts periods (`2026-10-15` is that day, `2026-10` is that month) and may be prefixed with `>` `<` `>=` `<=`; an unrecognised `xx:` stays an ordinary word, so a message like `fix: crash` is not lost; each condition is a chip under the box that can be removed on its own (blue for a condition, gray for free text, outlined for a field still waiting for a value), and the `▾` at the right of the box lists every field, filling its prefix in on click | ✅ |
+| Grouping in History | To the right of the filter row an "Ungrouped ▾" control files commits into sections by **branch**, **author** or **date**: each section gets a collapsible header (kind icon + name + commit count), and one click folds the whole group; each group redraws the graph from its own commits — a group is that group's history; a commit belongs to exactly one group, and commits no branch points at go to "No branch". Grouping is layout only — multi-select, cherry-pick and revert still act on the whole batch — but `Ctrl+A` selects only the commits **you can see** (a folded group does not count) | ✅ |
+| History columns | The History page is a table: clicking "Message / Author / Date / Hash" in the header sorts by that column (click again to flip), and the current sort column carries an arrow; to the right of the filter row a "Columns ▾" menu toggles each column (the menu stays open so several can be adjusted in one go). Every column has a vertical line at its right edge and that is where you drag to resize (it thickens and turns blue on hover): message, graph, author, date and hash are each independent, and **double-clicking that line resets the column**; dragged widths are remembered locally. The wider the panel, the wider the columns can go: at bottom-dock width, dragging the graph column open shows dozens of lanes; when the panel narrows, over-wide columns are clamped back to what fits instead of pushing a horizontal scrollbar onto the table. When the panel cannot satisfy every column, **the column you touched last gets its width first** and the rest give way in proportion to what each can spare; to change the priority, drag that column. **The graph is drawn only in history order (newest first)** — under another sort the parent/child relationship it expresses no longer holds, so it is folded away; the filter row then shows a "Restore commit graph" button, and one click returns to history order. Narrow columns yield by the width they live in: the author column (under 460 px) and the hash column (under 340 px) step aside, header and data rows together, so the two stay aligned. The sort and the column toggles are remembered locally, and the next open looks the same | ✅ |
+| Branch labels in narrow columns | Each row's branches and tags are **written out in full**, not fragments: as the panel narrows the message yields first and the label keeps its name (`origin/feature/diff-review` stays `origin/feature/diff-review`, never `or…`). Labels that do not fit on one row fold into a `+N` badge that says how many more there are, and the tooltip lists the full names of the folded ones; the first label (usually the current branch) is always there, shortening itself rather than being dropped when it gets too long. The current branch's label is solid, the rest are pale | ✅ |
+| Cherry-pick / Revert / Reset | Commit row menu: cherry-pick, revert this commit, reset (soft/hard) to this commit — every destructive one asks first | ✅ |
+| Interactive rebase | "Interactive rebase onto this commit" in a commit's context menu: the dialog lists the commits after base in execution order, movable up and down, each set to keep / squash (keeps both messages) / fixup (keeps the first) / drop, with a live footer reading "keep x / y · produce z commits"; dropping everything or squashing into the first is caught and the button disabled. On a conflict the top status bar turns red and states the conflict count, and "Continue" stays disabled until every conflict is resolved; when a replay comes out empty it pauses and explains "this commit brings no new changes, click continue to skip it", and the next click finishes — the terminal is never needed | ✅ |
 
-## 分支、远程与网络
+## Branches, remotes and the network
 
-| JetBrains | 这里的实现 | 状态 |
+| JetBrains | How it works here | Status |
 |---|---|---|
-| 分支切换 / 新建 / 重命名 | 工具栏分支 chip 弹层；重命名会保留 upstream 并提示上游仍是旧名称 | ✅ |
-| 分支领先 / 落后 | 分支 chip 上直接标出 `↑2` / `↓1`（绿色领先、红色落后），悬停说明「领先上游 2 个提交」；chip 本身说明跟踪的是哪个远程分支。没有上游的分支不显示标记——没有可比较的对象 | ✅ |
-| 设置 / 取消上游（Set/Unset Upstream） | 当前分支右键「设置上游分支…」：列出已获取的远程分支，选一个就 `git branch --set-upstream-to`；也可以「手动输入远程分支…」写一个还没获取的名字。已有上游时是「更改上游分支…」和「取消上游分支」。上游名在宿主侧校验（`remote/branch` 两段分别查，远程名不能带 `/`），引用的分支必须真实存在，否则中文报错「找不到远程分支 origin/nope」而不是留一个指向空气的配置。取消上游不丢任何提交，因此不设二次确认 | ✅ |
-| 分支比较（Show Changes） | 分支行右键「与当前分支比较」→ 历史页只列两侧各自独有的提交，头部显示领先/落后 | ✅ |
-| 变基到所选分支（Rebase onto） | 分支行右键「将当前分支变基到所选分支…」：把当前分支独有的提交重放到所选分支顶端（`git rebase <branch>`）。当前分支自己的菜单里不出现这一项，作用对象不会搞混；执行前有独立确认，写明"哈希会改变 / 工作区必须干净 / 冲突会在顶部状态条暂停"，焦点默认停在「取消」；工作区脏、有序列器在跑、目标是自己或不存在时都明确拒绝（中文错误，不是英文 git 输出）；冲突时变基暂停，提示去顶部状态条继续或中止 | ✅ |
-| Fetch / Pull / Push | 分支 chip 弹层：拉取（合并 / 变基两个变体）、推送（含强制推送，走 `--force-with-lease`）、获取。跑的时候 chip 就地变成「获取中…」并带脉冲与进度光标，弹层里正在执行的那一格保持高亮——不用猜刚才那一击有没有生效；此时再点任何操作都会明确提示「上一个 Git 操作仍在进行」，而不是静默吞掉。首次推送会问你要推到哪个远程仓库（`origin` 只是约定，不是事实）：有 upstream 就直接推，没有就按远程仓库列表让你选，推送时自动 `-u <remote> HEAD`，不需要先去终端补 upstream；失败时把 git 自己的话以左对齐浮层显示，剥掉 `hint:` 样板、超过 6 行截断，不再是一堵盖住提交框的英文墙 | ✅ |
-| 远程仓库管理（Manage Remotes） | 分支 chip 弹层底部的「管理远程仓库…」：列出仓库里的每个远程仓库（名称 + 地址），可以添加、改地址、删除。地址就是 `git remote add/set-url` 的地址，本地路径、Ssh、https 都行；名称和地址在宿主侧校验（名称只允许字母数字与 `._-`，地址不能是空或以 `-` 开头——后者会被 git 当成选项）。删除前有二次确认，写明"已拉取的远程分支会保留，直到下次获取时被清理"，焦点默认停在「取消」 | ✅ |
+| Switch / create / rename a branch | The branch chip popover in the toolbar; renaming keeps the upstream and says the upstream still carries the old name | ✅ |
+| Branch ahead / behind | `↑2` / `↓1` right on the branch chip (green ahead, red behind), with "2 commits ahead of upstream" on hover; the chip itself says which remote branch is tracked. A branch with no upstream shows no markers — there is nothing to compare against | ✅ |
+| Set / Unset Upstream | "Set upstream…" on the current branch: pick one of the fetched remote branches and it becomes `git branch --set-upstream-to`; or "Type a remote branch name…" for a name that has not been fetched yet. With an upstream already set the items read "Change upstream…" and "Unset upstream". The upstream name is validated host-side (the `remote/branch` halves are checked separately, the remote name cannot contain `/`), and the branch it names must exist, so you get "remote branch origin/nope not found" rather than a config entry pointing at nothing. Unsetting the upstream loses no commit, so it has no confirmation | ✅ |
+| Compare branches (Show Changes) | "Compare with current branch" on a branch row → the History page lists only the commits unique to each side, with ahead/behind in the header | ✅ |
+| Rebase onto a branch | "Rebase current branch onto this branch…" on a branch row: replay the commits unique to the current branch on top of the chosen one (`git rebase <branch>`). The item does not appear on the current branch's own menu, so the target cannot be confused; there is a dedicated confirmation that says "hashes will change / the worktree must be clean / a conflict pauses at the top status bar", with focus defaulting to "Cancel"; a dirty worktree, a sequencer already running, a target equal to itself or a target that does not exist are all refused explicitly (in Chinese, not raw English git output); on a conflict the rebase pauses and the hint points at the top status bar to continue or abort | ✅ |
+| Fetch / Pull / Push | The branch chip popover: pull (merge and rebase variants), push (including force push, via `--force-with-lease`), fetch. While one runs, the chip itself becomes "Fetching…" with a pulse and a progress cursor, and the cell running in the popover stays highlighted — no guessing whether the click landed; clicking any other action in the meantime says "the previous Git operation is still running" instead of swallowing it. A first push asks which remote to push to (`origin` is a convention, not a fact): with an upstream it pushes straight away, without one it offers the remote list and pushes with `-u <remote> HEAD`, so nobody has to set the upstream in a terminal first; on failure git's own words appear in a left-aligned popover, with the `hint:` boilerplate stripped and anything past 6 lines truncated — no longer a wall of English covering the commit box | ✅ |
+| Manage Remotes | "Manage remotes…" at the bottom of the branch chip popover: lists every remote in the repository (name + URL), and lets you add, re-point and remove them. The URL is exactly what `git remote add/set-url` takes — a local path, ssh, https; names and URLs are validated host-side (a name allows letters, digits and `._-` only; a URL cannot be empty or start with `-`, which git would read as an option). Deleting asks twice and states "already fetched remote branches stay until the next fetch prunes them", with focus defaulting to "Cancel" | ✅ |
 
-## 储藏、冲突与中断
+## Stash, conflicts and interrupted operations
 
-| JetBrains | 这里的实现 | 状态 |
+| JetBrains | How it works here | Status |
 |---|---|---|
-| Shelf / Stash | 分支菜单的「储藏更改…」先弹命名与勾选窗口：消息预填「储藏 · 时间」（留空用 git 默认名），文件默认全选；只勾几个文件时用临时 index 做部分储藏，没勾的暂存内容不会被带进储藏、也不会被动到。菜单底部列出最近 5 条储藏：单击打开只读预览（含未跟踪文件，用 `git stash show --include-untracked`），右键才是 应用/弹出/复制引用/删除；删除前二次确认，误点不会改写工作区 | ✅ |
-| 冲突解决 | 三方冲突视图：逐块「采用你的版本 / 采用对方的版本 / 接受双方」，也可以「编辑结果」在块下方直接写合并后的文本（Ctrl+Enter 应用、Esc 取消），手写内容只替换该块；可展开共同祖先列，窄屏自动上下堆叠；两处冲突之间大段未改动代码按差异的方式折叠（两侧各留 3 行上下文，点击展开），解完最后一块自动退出冲突编辑器 | ✅ |
-| 合并/拣选/变基进行中 | 顶部状态条写明当前是哪种操作、还有几个冲突，并给出「中止」（`--abort`）；非合并的操作在冲突全部解决后亮出「继续」，重放变空时也能继续跳过。暂停期间提交栏保持禁用并指向「继续」，不会在序列器之上另造一个提交 | ✅ |
+| Shelf / Stash | "Stash changes…" in the branch menu first opens a naming and selection dialog: the message is prefilled with "Stash · time" (empty uses git's default name) and every file is ticked; ticking only a few files produces a partial stash through a temporary index, so unticked staged content is neither stashed nor disturbed. The menu's bottom lists the 5 most recent stashes: a single click opens a read-only preview (including untracked files, via `git stash show --include-untracked`), and the context menu is where apply / pop / copy ref / drop live; dropping asks twice, so a misclick does not rewrite the worktree | ✅ |
+| Conflict resolution | A three-way conflict view: per block "Take yours / Take theirs / Accept both", or "Edit result" to write the merged text straight under the block (`Ctrl+Enter` applies, `Esc` cancels), with the typed content replacing only that block; the common-ancestor column can be shown, and narrow screens stack it; long unchanged stretches between two conflicts fold the way a diff does (3 lines of context per side, click to expand), and resolving the last block leaves the conflict editor automatically | ✅ |
+| Merge / cherry-pick / rebase in progress | The top status bar names the operation and how many conflicts remain, and offers "Abort" (`--abort`); a non-merge operation reveals "Continue" once every conflict is resolved, and can continue to skip an empty replay too. While paused the commit bar stays disabled and points at "Continue", so no extra commit is ever built on top of the sequencer | ✅ |
 
-## 面板与交互细节
+## Panel and interaction details
 
-| JetBrains | 这里的实现 | 状态 |
+| JetBrains | How it works here | Status |
 |---|---|---|
-| 逐个/逐轮看会话改动 | 会话卡片、右侧「改动」页、会话头部、右侧「文件」页的 `Git` 按钮 | ✅ |
-| 常驻的改动提示 | 输入框上方的改动条（有改动才出现，点击打开右侧页签） | ✅ |
-| 目录不是仓库 | 空态只说"这个目录没有仓库"并给出一键「初始化仓库」：就地 `git init`（只创建 `.git`，不动现有文件），完成后自动刷新成分支 chip + 未跟踪文件；分支 chip、状态药丸行、提交框一律不渲染（灰掉的「提交」只是把"为什么不能提交"推给用户去猜） | ✅ |
-| 在空目录里初始化仓库（Create Git Repository） | 空态按钮「初始化仓库」走宿主 `POST /api/git/init`（写锁、绝对路径 + 目录校验、只读模式拒绝）；已经是仓库（含父仓库）时幂等返回并刷新，不会嵌套出第二层 `.git`；实测原有文件原样保留并立刻出现在未跟踪列表里 | ✅ |
-| 破坏性确认框 | 16 处确认的按钮各自写明动作（撤销更改 / 硬重置 / 重置并取消暂存 / 删除储藏 / 删除分支 / 删除变更列表 / 删除远程仓库 / 变基到所选分支 / 强制推送 / 采用对方版本…）并染成红色，焦点默认留在「取消」——回车不能替用户按下不可逆的按钮；软重置虽保留改动但会清空暂存区，同样确认 | ✅ |
-| 浮动命名框（新建分支/标签/重命名） | 建议名直接填进输入框并选中（放在 placeholder 里既不能回车接受也没法编辑），按钮写明 创建 / 重命名，空值回车变成红边 + `名称不能为空` 而不是静默拒绝；`回车确认 · Esc 取消` 常驻提示 | ✅ |
-| 设置分组 | 宿主设置 → 内置插件 → Git 工作台：13 项按「提交与分支 / 差异与历史 / 生成提交信息的模型 / 安全与只读」四组分标题，保存条 sticky 在对话框底边 | ✅ |
-| Git 控制台（Console） | 独立页签按仓库列出宿主真实执行的 git 命令：argv、退出码、耗时、时间；失败行置红并自动展开 stderr，连续相同命令折叠成 `×N`，刷新记录不会淹没故障；「清空」只清当前仓库的历史，轮询控制台自身不产生新记录 | ✅ |
-| 控件的样子统一 | 工具条里的次要控件（提交栏的 `AI` / `最近信息` / `检查`、差异工具条的「忽略空白 / 统一 / 暂存整个文件」、差异块头的「暂存此块」、历史页的「全部分支 ▾」、冲突视图的「全部采用你的版本」等）都带边框，一眼能看出是能点的按钮；行内动作（变更列表的「提交此列表」、分组头的「全部暂存 / 全部取消」、冲突视图的「编辑结果 / 采用你的版本 / 接受双方」）是蓝色的文字链接；只读的数字（冲突视图的 `1 / 3` 块计数）保持中性灰，不假装成动作 | ✅ |
-| 中英双语 | 跟随 DSH 的语言偏好（未设置时看浏览器语言），切换即时生效；已打开的标签页标题要重开才换（宿主的标签栏也是这样），提交信息语言可用 `commitLanguage` 固定 | ✅ |
+| Watch a conversation's changes, one by one or turn by turn | The turn card, the right sidebar's "Changes" tab, the conversation header, and the `Git` button on the right sidebar's "Files" tab | ✅ |
+| A persistent change hint | The change bar above the input (appears only when there are changes; clicking opens the right sidebar tab) | ✅ |
+| A directory that is not a repository | The empty state says only "this directory has no repository" and offers one-click "Initialize repository": `git init` in place (creating only `.git`, touching no existing file), after which it refreshes into a branch chip + untracked files; the branch chip, the status pill row and the commit box are not rendered at all (a disabled "Commit" would only leave the user guessing why) | ✅ |
+| Create a Git repository in an empty directory | The empty-state "Initialize repository" button goes through the host's `POST /api/git/init` (write lock, absolute path + directory checks, refused in read-only mode); when it already is a repository (including under a parent repository) it returns idempotently and refreshes, never nesting a second `.git`; in practice existing files are left exactly as they were and appear in the untracked list right away | ✅ |
+| Destructive confirmations | All 16 confirmations name their action on the button (Discard changes / Hard reset / Reset and unstage / Drop stash / Delete branch / Delete changelist / Remove remote / Rebase onto this branch / Force push / Take theirs …) and are red, with focus parked on "Cancel" — Enter can never press an irreversible button for the user; a soft reset keeps the changes but empties the index, so it asks too | ✅ |
+| Floating name dialog (new branch/tag, rename) | The suggested name is typed into the input and selected (a placeholder can neither be accepted with Enter nor edited), the button names the verb — Create / Rename — and an empty Enter turns the border red with "The name cannot be empty" instead of refusing silently; "Enter to confirm · Esc to cancel" is always shown | ✅ |
+| Settings grouping | Host settings → Built-in plugins → Git workbench: 13 items under four group headings ("Commit and branch / Diff and history / Model for commit messages / Safety and read-only"), with the save bar sticky at the bottom of the dialog | ✅ |
+| Git console | A separate tab lists the git commands the host really ran, per repository: argv, exit code, duration, time; a failed row is red and expands its stderr, a run of identical commands folds into `×N`, and refreshing records never buries a failure; "Clear" clears only the current repository's history, and polling the console itself never adds records | ✅ |
+| Controls look the same everywhere | Secondary controls in a toolbar (the commit bar's `AI` / `Recent messages` / `Checks`, the diff toolbar's "Ignore whitespace / Unified / Stage whole file", the diff block's "Stage this hunk", the History page's "All branches ▾", the conflict view's "Take yours everywhere" …) carry a border, so they read as clickable at a glance; in-row actions (a changelist's "Commit this list", a group header's "Stage all / Unstage all", the conflict view's "Edit result / Take yours / Accept both") are blue text links; read-only numbers (the conflict view's `1 / 3` block counter) stay neutral gray and do not pretend to be actions | ✅ |
+| Chinese and English | Follows DSH's language preference (the browser language when unset), switching live; an already-open tab title needs the tab reopened (the host's own tab bar behaves the same way), and the commit-message language can be pinned with `commitLanguage` | ✅ |
 
-## 布局断点
+## Layout breakpoints
 
-工具窗口会被拖窄、也会被展开，所以三个页签内部宽度自适应：
+The tool window gets dragged narrow and expanded, so all three panes size their contents:
 
-| 页签 | 宽度 | 布局 |
+| Tab | Width | Layout |
 |---|---|---|
-| 提交 | 任意 | 列表占满，提交栏吸底；信息框在上、`AI`/`最近信息`/`检查`/`Amend`/`提交` 一行在下；< 640px 收紧头部控件 |
-| 历史 | ≥ 560px | 左图右详情 |
-| 历史 | < 560px | 上下堆叠，隐藏作者列、收窄图泳道 |
-| 历史 | 未选中提交 | 列表独占整块高度，详情只留一行提示 |
-| 差异 | ≥ 820px | 并排 diff（手动选择可覆盖） |
-| 差异 | < 820px | 统一 diff（并排在这个宽度没意义） |
-| 冲突 | ≥ 760px | 你的版本 / 对方版本两列并排 |
-| 冲突 | < 760px | 两列上下堆叠 |
+| Commit | any | The list fills the pane with the commit bar pinned to the bottom; the message box on top, `AI`/`Recent messages`/`Checks`/`Amend`/`Commit` on one row below; header controls tighten under 640 px |
+| History | ≥ 560 px | Graph on the left, details on the right |
+| History | < 560 px | Stacked, the author column hidden and the graph lanes narrowed |
+| History | no commit selected | The list takes the full height and the details leave a one-line hint |
+| Diff | ≥ 820 px | Side by side (a manual choice overrides it) |
+| Diff | < 820 px | Unified (side by side is meaningless at this width) |
+| Conflict | ≥ 760 px | Yours / theirs as two columns |
+| Conflict | < 760 px | The two columns stack |
 
-diff 工具条按"操作对象"分组，避免两组箭头看起来像同一个控件：`∧ 2/3 ∨` 是**当前文件内**的差异块导航（计数就在两个箭头中间，鼠标提示写清是第几处），`‹ 2 / 8 ›` 才是**文件之间**的切换，`+6 −2` 只报行数。计数跟着阅读位置走；整个 diff 短到不需要滚动时，则由上一次点击接管——否则这个窄侧栏里按钮点了没反应。
+The diff toolbar groups controls by "what they act on", so two sets of arrows never read as one control: `∧ 2/3 ∨` navigates hunks **within the current file** (the count sits between the arrows, and the tooltip spells out which hunk), `‹ 2 / 8 ›` switches **between files**, and `+6 −2` only reports line counts. The counter follows the reading position; when the whole diff is short enough not to scroll, the last click takes over instead — otherwise buttons in this narrow sidebar would do nothing.
 
-## 已知限制
+## Known limitations
 
-1. **提交以 index 为准**：勾选框是"暂存/取消暂存"的快捷方式，提交永远提交暂存区，不会把未暂存的部分顺手带进去。
-2. **新文件只能整文件暂存**：部分暂存依赖"旧侧"存在，新增文件没有可对齐的 pre-image。
-3. **每个冲突块可以手写结果，但编辑范围就是这个块**：选边（你的 / 对方的 / 双方）和「编辑结果」二选一；编辑框预填你这一侧的内容，写入后只替换当前块，别的标记原样保留。跨块的整体缝合仍然交给外部编辑器，回到面板按 `F5` 刷新即可继续逐块处理。删除/修改型冲突没有共同文本可比，视图会明确说明而不是画三个空列。全部采纳本地版本时工作区可能没有差异，此时顶部状态条显示"合并进行中 · 待提交"，提交或中止都由它入口。
-4. **忽略空白模式只读**：`-w` 的块索引与普通 diff 不同，写回会落到错误的行，因此该模式没有任何写入口。
-5. **提交图分道是单遍贪心**，极端交织的分支可能不如 IDEA 紧凑。
-6. **大文件**：单个文件 diff 超过 32 MB 会被拒绝，避免把浏览器打爆。
-7. **轮次快照只在宿主进程存活期间可读**：DSH 只把 `workspace/changes` 的摘要留在内存里，重启后旧轮次打不开（面板会明确说明原因）。
-8. **AI 提交信息需要模型凭据**：走 `ctx.llm` 的同一个 provider，缺 key 时不会报错中断，而是降级成本地规则并提示原因。
-9. **不接管聊天里的 `edit` / `write` 工具卡片**：那是按 key 整卡替换的槽位，替换代价大于收益，详见 [architecture.md](architecture.md#dsh-里所有能看-diff-的位置)。
+1. **Commits follow the index**: the checkbox is a shortcut for "stage/unstage", and a commit always commits the index — the unstaged part is never swept along.
+2. **A new file can only be staged whole**: partial staging depends on an old side existing, and an added file has no pre-image to align against.
+3. **Each conflict block can be hand-edited, but the edit is scoped to that block**: taking a side (yours / theirs / both) and "Edit result" are alternatives; the box is prefilled with your side, and what you write replaces only the current block, with the other markers left alone. Stitching across blocks is still an external editor's job — come back and press `F5` to carry on block by block. A delete/modify conflict has no common text to compare, so the view says so instead of drawing three empty columns. After taking the local version everywhere the worktree may show no diff, and the top status bar then reads "merge in progress · ready to commit", with both committing and aborting entering from there.
+4. **Ignore-whitespace mode is read-only**: `-w` computes different hunk indices than a plain diff, so writing back would land on the wrong lines — the mode therefore has no write entry point at all.
+5. **The commit graph lays out lanes with a single greedy pass**, so extremely interleaved branches may be less compact than IDEA's.
+6. **Large files**: a single file's diff over 32 MB is refused, so the browser does not get blown up.
+7. **Turn snapshots are readable only while the host process lives**: DSH keeps only the `workspace/changes` summaries in memory, so an old turn cannot be opened after a restart (the panel says why).
+8. **AI commit messages need model credentials**: they go through the same provider as `ctx.llm`, and a missing key does not error out but degrades to the local rules with the reason shown.
+9. **The chat's `edit` / `write` tool cards are not taken over**: that is a slot replaced by key, and the cost outweighs the benefit — see [architecture.md](architecture.md#every-place-in-dsh-that-shows-a-diff).

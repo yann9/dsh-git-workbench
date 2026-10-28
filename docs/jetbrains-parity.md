@@ -1,133 +1,133 @@
-# 设计取舍：JetBrains 对齐笔记
+# Design trade-offs: notes on matching JetBrains
 
-> 这份文档记录"为什么长这样"，而不是"有什么功能"。功能清单在 [features.md](features.md)，
-> 代码结构在 [architecture.md](architecture.md)。凡是看起来可以更简单的决定，这里都给过理由。
+> This document records "why it looks like this", not "what it does". The feature list is [features.md](features.md),
+> the code structure is [architecture.md](architecture.md). Every decision that looks like it could be simpler has a reason here.
 
-## 1. 三个界面，不是三个模式
+## 1. Three panes, not three modes
 
-JetBrains 的 Git 不是"一个窗口切换模式"，而是三块彼此独立的界面：提交暂存区（Commit）、提交历史（Log）、diff 查看。前两者是工具窗口，位置随你拖；diff 不占工具窗口，它开在编辑器里，而且**只有一个**——点另一个文件，同一个 tab 换内容。
+JetBrains' Git is not "one window that switches modes" but three independent panes: the commit staging area (Commit), the commit history (Log), and the diff viewer. The first two are tool windows you can drag anywhere; the diff is not a tool window — it opens in the editor, and there is **only one**: click another file and the same tab changes content.
 
-关键点有三条，缺一条体验就不对：
+Three points matter, and dropping any one of them makes the experience wrong:
 
-1. **提交与历史互不隶属**。它们各自有状态（勾选、滚动、过滤、提交草稿），切换不该丢；把它们塞进一个 tab 的分段器，切换就等于互相重置。
-2. **diff 不属于工具窗口**。它是"内容"，所以要有内容区的大小，并且是**单例**。
-3. **位置由宿主决定**。IDE 里把 Commit 拖到左下角是常规操作，插件不该假定自己是"第几个 tab"。
+1. **Commit and history are not subordinate to each other.** Each has its own state (selections, scroll, filters, commit draft), and switching must not lose it; stuffing them into one tab's segmenter makes every switch a mutual reset.
+2. **The diff does not belong to a tool window.** It is "content", so it gets content-area size and is a **singleton**.
+3. **The host decides the position.** Dragging Commit into the bottom-left corner is routine in an IDE, so a plugin must not assume which tab it is.
 
-DSH 的右侧栏正好提供前两件事：`sidebarRightTabs.register(kind)` 产生可拖动的页签，页签组件挂在 `sidebar.right.pane.tab`。差异不属于工具窗口，它注册在 `conversation.view` 的视图环里，并且只有一个。
+DSH's right sidebar provides exactly the first two: `sidebarRightTabs.register(kind)` produces draggable tabs, and a tab component mounts into `sidebar.right.pane.tab`. The diff is not a tool window — it registers on `conversation.view`'s view ring, and there is one of it.
 
 ```
-commit  → 提交      （列表 + 冲突 + 提交栏）
-log     → 历史      （图 + 提交详情 + 文件清单）
-diff    → 差异      （单例，diffTargetStore 决定显示哪个文件）
+commit  → Commit   (list + conflicts + commit bar)
+log     → History  (graph + commit details + file list)
+diff    → Diff     (singleton; diffTargetStore decides which file shows)
 ```
 
-**来源决定内容，也决定可写性**：从「提交」进来的是工作区 diff（可逐块/逐行暂存）；从「历史」进来的是那次提交的 diff，用 `git diff <parent> <sha>` 取，**只读**，不提供任何暂存入口。两种来源的 `‹ n/m ›` 各自按自己的文件集计算，不会互相污染。
+**The source decides the content, and the writability**: entering from "Commit" gives you the worktree diff (stageable by hunk/line); entering from "History" gives you that commit's diff, read with `git diff <parent> <sha>`, **read-only**, with no staging entry point at all. Each source's `‹ n/m ›` counts its own file set, so the two never contaminate each other.
 
-**为什么不用 `multiple: true` 做"每个文件一个 tab"**：那样点十个文件就有十个 tab，和 JetBrains 相反，而且关 tab 变成日常负担。
+**Why not `multiple: true` for "one tab per file"**: ten files would then mean ten tabs — the opposite of JetBrains — and closing tabs becomes daily chores.
 
-**为什么差异页签不用 `dsh-resource://` 类型**：资源类型会按地址生成 contentId，等于每个文件一个 tab；我们要的恰恰是同一个 contentId。
+**Why the diff tab is not a `dsh-resource://` kind**: a resource kind derives its contentId from the address, which means one tab per file; what we want is precisely one shared contentId.
 
-## 2. 没有 iframe
+## 2. No iframe
 
-iframe 方案（独立文档 + postMessage）被整体移除了。它确实隔离了 CSS，但代价是：每个界面一份重复工具栏、主题要自己再实现、快捷键被困在文档里、切页签丢状态——这些恰好都是"像不像 IDE"的分界线。
+The iframe approach (an independent document + postMessage) was removed wholesale. It did isolate CSS, but at the price of: a duplicated toolbar per pane, a theme that had to be reimplemented, shortcuts trapped inside the document, state lost on every tab switch — all of them exactly the line between "feels like an IDE" and "doesn't".
 
-现在三个界面都挂进宿主 React 树：样式注入一次（`.gwb` 作用域）、颜色取宿主设计 token、快捷键绑在组件根节点上。**只读不是"隐藏按钮"**：`readOnly` 传进渲染层后，选区、hunk 动作、stage 按钮在只读路径上根本不存在。和 IDE 一样，"看历史"是另一个状态，不是"当前状态加一把锁"。
+All three panes now mount into the host React tree: the stylesheet is injected once (scoped to `.gwb`), colors come from the host's design tokens, and shortcuts are bound on the component root. **Read-only is not "hiding buttons"**: once `readOnly` reaches the render layer, the selection, the hunk actions and the stage buttons do not exist on the read-only path at all. As in an IDE, "viewing history" is another state, not "the current state plus a lock".
 
-加第四个界面 = 加一个 chunk + 注册一个槽位，不碰现有组件。
+A fourth pane = one more chunk + one more slot registration, with no existing component touched.
 
-## 3. 主区域当编辑器：代价与补偿
+## 3. The main area as the editor: cost and compensation
 
-diff 放在中间是 IDE 的位置，但 DSH 的全局面板是**独占**的：`layout.selectPanel(id)` 生效后，会话与右侧栏一起卸载，所以拿不到"编辑器 + 工具窗口并排"的完整版式。
+Putting the diff in the middle is the IDE position, but DSH's global panel is **exclusive**: once `layout.selectPanel(id)` takes effect, the conversation and the right sidebar unmount together, so the full "editor + tool window side by side" layout is out of reach.
 
-补偿手段放在 diff 自己的头部，而不是假装工具窗口还在：
+The compensation sits in the diff's own header instead of pretending the tool window is still there:
 
-- `3 / 5` 是**按钮**，点开是当前文件集的完整列表（带状态徽标），选一个就换 diff；
-- `‹ ›` 与 `Alt+↑/↓` 切文件，`F7` / `Shift+F7` 切差异块，走到头自动进相邻文件；
-- `Esc` / ✕ 回会话，工具窗口恢复（内容会重新拉，滚动位置不保留）。
+- `3 / 5` is a **button** that opens the full list of the current file set (with status badges); picking one swaps the diff;
+- `‹ ›` and `Alt+↑/↓` switch files, `F7` / `Shift+F7` switch hunks, and stepping past the edge moves into the adjacent file;
+- `Esc` / ✕ returns to the conversation and the tool window comes back (content is re-fetched; scroll position is not kept).
 
-滚轮边缘切换被有意去掉了：在普通阅读里"滚到底"和"切到下一个文件"只差几像素，误触发比省一次按键更烦。边界行为也是刻意的：到第一个文件再按上、到最后一个再按下会提示而不是循环——循环会让人分不清自己是不是又绕回去了。
+Scroll-wheel edge switching was dropped on purpose: in ordinary reading "scroll to the end" and "go to the next file" are a few pixels apart, and a misfire is more annoying than saving a keypress. The edge behaviour is deliberate too: pressing up at the first file or down at the last one says so instead of wrapping — wrapping leaves you unsure whether you went round.
 
-如果哪天宿主支持主区域分栏，这里应该换成"右侧内容栏"而不是主面板；接口层只依赖 `openDiff` 一处，替换成本很低。
+If the host ever grows a main-area split, this should become a "right content column" rather than the main panel; the interface layer depends on `openDiff` in one place only, so the swap is cheap.
 
-## 4. 一条刻意保留的约束
+## 4. One constraint kept on purpose
 
-面板和 Agent **共用同一份 service**。Agent 调 `git_stage` 之后，面板下一次刷新看到的是同一套规则算出来的结果；不存在"Agent 暂存的和我看到的不一样"。这也是把 git 逻辑放在 host 侧、而不是在浏览器里直接调 API 的原因。
+The panel and the Agent **share the same service**. After the Agent calls `git_stage`, the panel's next refresh shows a result computed by the same rules; there is no such thing as "the Agent staged something different from what I see". This is also why the git logic lives host-side instead of calling the API straight from the browser.
 
-## 5. 和已有 DSH Git 插件的差异
+## 5. How this differs from existing DSH Git plugins
 
-社区已经有一些 git 插件，重心分别是：读写工具 + 简单面板、自然语言生成命令提案、结构化只读工具、多平台 PR / Issue。这个项目的定位只有一句话：**把 IDE 的 diff / 暂存交互做完整**。
+The community already has git plugins centred on: read/write tools plus a simple panel, natural-language command suggestions, structured read-only tools, and multi-platform PR / issue work. This project's positioning is one sentence: **do the IDE's diff / staging interaction completely**.
 
-| 能力 | 常见实现 | 这里 |
+| Capability | The usual approach | Here |
 |---|---|---|
-| 暂存粒度 | 整文件 | 整文件 / Hunk / 行 |
-| Diff | 单栏 unified 文本 | 并排 + 统一，双行号，可选行 |
-| 提交图 | `git log --graph` 文本 | DAG 泳道（SVG，可点选） |
-| 提交范围 | 暂存区或全部 | 严格暂存区 |
-| Agent 与 UI 一致性 | 各自实现 | 同一 service |
+| Staging granularity | Whole file | Whole file / hunk / line |
+| Diff | A single unified text column | Side by side + unified, both line numbers, selectable lines |
+| Commit graph | `git log --graph` text | A DAG in SVG lanes, clickable |
+| Commit scope | The index or everything | Strictly the index |
+| Agent / UI consistency | Implemented separately | One service |
 
-## 6. 实现上真正难的地方
+## 6. Where the implementation is genuinely hard
 
-按踩坑密度排序，给二次开发的人一个路标：
+Ordered by how much pain it caused, as a signpost for anyone building on this:
 
-1. **逐行暂存**。算法不难，难在边界——新文件、CRLF、文件末尾无换行、跨 hunk 多选。`--recount` 能兜住计数错误，但标记语义错了它救不回来。
-2. **提交图布局**。单遍贪心在绝大多数仓库里和 IDEA 观感一致；真正难的是"泳道尽量少且稳定"，需要两遍布局 + 冲突消解。
-3. **冲突解决**。三方视图的 base/ours/theirs 直接读 index stage 1/2/3，按标记切块后逐块决策：每次只重写一个块，剩下的标记原样保留，最后一块顺手 `git add`，视图随即退出。除了选边，块下方可以直接手写合并结果（`custom` 策略），写入范围仍然只有这一块。另一个坑：全部取 ours 后工作区零改动，但 `MERGE_HEAD` 还在，所以 status 必须单独报告 `merging`，否则提交按钮会被"没有暂存内容"挡住，合并永远结束不了。
-4. **储藏的部分文件**。`git stash push -- <paths>` 会**把整个 index 卷进储藏的第二个父提交**，弹出时把没勾选的内容一并带回来。必须给 `git stash` 一个临时 index：以 HEAD 为底，只把勾选路径在真实 index 里的条目拷进去，跑完只对这几条路径 `git reset`。重命名要按新旧两条路径处理，只存新路径会让重命名散架。
-5. **变更列表的按列表提交**。同样用临时 index；范围外的重命名只摘新路径的话，旧路径的删除仍会跟进提交——两处都要展开 `origPath`。
-6. **行内 word diff**。把 del/add 行按词切分做 token LCS，先剔除公共前后缀再对齐；统一视图、并排视图和冲突视图的两侧列共用同一套区间计算。
-7. **交互式变基**。todo 由宿主写临时文件，`GIT_SEQUENCE_EDITOR` / `GIT_EDITOR` 指向本地编辑器脚本，用户输入只以 hash + 白名单动作进入。最容易漏的一条：序列器暂停时提交栏会重新亮起来，此时点「提交」会越过 sequencer 另造一个提交——暂停期间必须禁用提交与 Amend，`Ctrl+Enter` 也绕不过去。
+1. **Line-level staging.** The algorithm is easy; the edges are not — new files, CRLF, a missing final newline, multi-selection across hunks. `--recount` catches wrong counts, but a wrong marker semantic is beyond saving.
+2. **Commit-graph layout.** A single greedy pass matches IDEA's look in most repositories; what is genuinely hard is "as few lanes as possible, and stable", which needs a two-pass layout plus conflict resolution.
+3. **Conflict resolution.** The three-way view reads index stages 1/2/3 directly, splits by markers, and decides block by block: each write rewrites one block and leaves the other markers alone, the last block is `git add`ed in passing, and the view exits. Besides taking a side, the merged result can be typed straight under a block (the `custom` strategy), still scoped to that block. Another trap: after taking ours everywhere the worktree shows zero changes while `MERGE_HEAD` still exists, so status must report `merging` separately — otherwise the commit button is blocked by "nothing staged" and the merge can never end.
+4. **Partial-file stash.** `git stash push -- <paths>` **drags the whole index into the stash's second parent**, so popping brings back content that was never ticked. `git stash` has to be given a temporary index: based on HEAD, copy in only the ticked paths' entries from the real index, and afterwards `git reset` just those paths. A rename has to be handled as both the old and the new path; stashing only the new one tears the rename apart.
+5. **Committing a changelist by list.** Also a temporary index; for a rename outside the scope, dropping only the new path still lets the old path's deletion follow the commit — `origPath` has to be expanded on both sides.
+6. **Inline word diff.** Split del/add lines into words for a token LCS, strip the common prefix and suffix first, then align; the unified view, the side-by-side view and both columns of the conflict view share the same range computation.
+7. **Interactive rebase.** The host writes the todo to a temporary file, `GIT_SEQUENCE_EDITOR` / `GIT_EDITOR` point at local editor scripts, and user input enters only as hashes + allow-listed actions. The easiest thing to miss: when the sequencer pauses the commit bar comes back to life, and clicking "Commit" then builds a commit on top of the sequencer — commits and Amend must be disabled while paused, and `Ctrl+Enter` must not get around it either.
 
-## 7. 明确不做的
+## 7. Deliberately out of scope
 
-- **不做 `git push` 的凭据交互**：在 Web 面板里弹密码 / token 输入框是安全反模式。网络操作禁用终端凭据交互并设超时，失败就把 git 的话交回来。
-- **不在浏览器里跑 git**：WASM 版 git 访问不到真实工作区，也没法复用用户的 git 配置。
-- **不做"自然语言转 git 命令"**：那是另一个产品方向；这里的模型工具是结构化的，参数由 schema 约束。
-- **不做 DOM 注入接管聊天里的内联 diff 卡片**：`tool.call.toolview` 是按 key 整卡替换的槽位，为加一个按钮重写官方卡片，收益不抵风险。
+- **No credential prompting for `git push`**: password / token inputs in a web panel are a security anti-pattern. Network operations disable terminal credentials and set a timeout; on failure git's words are handed back.
+- **No git in the browser**: a WASM git cannot reach the real worktree, nor reuse the user's git configuration.
+- **No "natural language to git command"**: that is another product direction; the model tools here are structured, with schema-constrained parameters.
+- **No DOM injection to take over the inline diff cards in chat**: `tool.call.toolview` replaces a whole card by key, and rewriting the official card to add one button costs more than it buys.
 
-## 8. 后加能力的取舍
+## 8. Trade-offs in later additions
 
-### 8.1 会话卡片上的入口
+### 8.1 Entry points on the turn card
 
-DSH 的「每轮改动」卡片已经渲染了文件名与增删行数，缺的是**看完整 diff** 的能力。两条路：
+DSH's "changes this turn" card already renders file names and added/removed line counts; what it lacks is the ability to **see the full diff**. Two roads:
 
-| 方案 | 代价 | 结论 |
+| Option | Cost | Verdict |
 |---|---|---|
-| 替换卡片 | 要复刻卡片的全部布局与交互，宿主一改版就散架 | 不选 |
-| 在卡片的动作位加按钮 | 依赖官方 slot 契约，宿主改版最多让按钮消失 | 采用 |
+| Replace the card | Reimplement all of the card's layout and interaction, and it falls apart on the next host redesign | Not chosen |
+| Add a button to the card's action slot | Depends on the official slot contract; the worst a host redesign does is make the button disappear | Chosen |
 
-用的是 `deliverables.file.actions` 与 `deliverables.review.file.actions` 两个 list 型、session 作用域的动作位。`actionUrl` 的查询串里带着 `sessionId` / `seq` / `index`，所以不需要跨文档传参——但两个动作位的 `seq` 不是同一回事：评审页给的是 `workspace/changes` 事件的序号，正是 `ctx.workspaceChanges` 认的那个；交付卡片给的是 `deliverables/presented` 事件的序号。服务端读会话日志按 `turn` 把两者接上，同一条 `Git` 按钮因此在两种卡片上都打开中间会话区的「差异」页签。
+It uses the `deliverables.file.actions` and `deliverables.review.file.actions` list-type, session-scoped action slots. The `actionUrl` query string carries `sessionId` / `seq` / `index`, so nothing has to cross a document boundary — but the two slots' `seq` is not the same thing: the review page hands over the `workspace/changes` event's sequence number, which is exactly what `ctx.workspaceChanges` understands; the deliverables card hands over the `deliverables/presented` event's sequence number. The server reads the session log and bridges the two by `turn`, so the same `Git` button opens the "Diff" tab in the middle conversation area from either card.
 
-**为什么快照值得单独做一个视图**：`workspace/changes` 记录的是"这一轮开始 → 结束"，与工作区当前状态无关。用户提交之后工作区 diff 就空了，但"Agent 这一轮到底改了什么"仍然有意义。这也是它必须只读的原因——快照内容无法被暂存或提交。
+**Why the snapshot deserves a view of its own**: `workspace/changes` records "this turn's start → end", independent of the worktree's current state. Once the user commits, the worktree diff is empty, but "what the Agent changed this turn" still means something. That is also why it must be read-only — snapshot content cannot be staged or committed.
 
-### 8.2 跨文件导航
+### 8.2 Cross-file navigation
 
-- **单文件视图**（变更 / 历史提交）：`Alt+↑/↓` 或头部 `‹ n/m ›` 切相邻文件；`F7` / `Shift+F7` 在差异块之间跳，走到头自动进入相邻文件的第一个 / 最后一个差异。
-- **堆叠视图**（某一轮）：本来就是一条滚动流，卡片入口用 `scrollIntoView` 定位到对应的轮次。
+- **Single-file views** (changes, a historical commit): `Alt+↑/↓` or the header's `‹ n/m ›` switch to the adjacent file; `F7` / `Shift+F7` jump between hunks, and stepping past the edge enters the adjacent file's first / last hunk.
+- **Stacked view** (a turn): it is one scroll flow already, and the card entry point uses `scrollIntoView` to land on the right turn.
 
-### 8.3 AI 生成提交信息
+### 8.3 AI commit messages
 
-调用链是 `ctx.agentDefaultModel.currentSelection()` → 选路由 → `listModels()` → `ctx.llm.stream()` → 拼 `text-delta`。四个坑：
+The call chain is `ctx.agentDefaultModel.currentSelection()` → pick a route → `listModels()` → `ctx.llm.stream()` → assemble the `text-delta`. Four traps:
 
-1. **provider 要用 `id` 不是 `name`**。路由键是 `provider.id`，传 `name` 会得到 `no adapter registered for provider`。
-2. **流结束后看 `finish.reason`，不是 `finish.error`**。失败以 `reason.kind === 'error'` 表达，漏判就会得出"模型返回空消息"这种误导性结论。
-3. **路由要取用户在 DSH 里选中的那条，不是 provider 列表的第一个**。官方账号登录时注册的 provider 不止一个，排在前面的那个可能一个模型都不暴露（目录在 App 的模型选择里，不在插件能枚举的注册表里），于是 `listModels()` 为空、又没有 `defaultModel`，最后报「provider 没有可用模型」——而对话框里明明能用。会话用的就是 `ctx.agentDefaultModel.currentSelection()`，插件照抄它即可；插件配置里的 `llmProvider` / `llmModel` 逐字段覆盖。
-4. **`listModels()` 可能是空的**。它是可选能力。候选链是：当前选择 / 配置里的 `llmModel` → `listModels()` 目录 → provider 自己声明的 `defaultModel`。不硬编码任何模型 id。
+1. **A provider is keyed by `id`, not `name`.** The routing key is `provider.id`; passing `name` gets you `no adapter registered for provider`.
+2. **After the stream, read `finish.reason`, not `finish.error`.** A failure shows up as `reason.kind === 'error'`, and missing that leads to the misleading conclusion "the model returned an empty message".
+3. **The route must be the one the user has selected in DSH, not the first provider in the list.** An official login registers more than one provider, and the first one may expose no models at all (its catalog lives in the App's model picker, not in any registry a plugin can enumerate), so `listModels()` comes back empty, there is no `defaultModel`, and the result is "the provider has no usable model" — while the chat dialog works fine. The conversation itself uses `ctx.agentDefaultModel.currentSelection()`, so the plugin copies that; `llmProvider` / `llmModel` in the plugin settings override it field by field.
+4. **`listModels()` may be empty.** It is an optional capability. The candidate chain is: the current selection / the configured `llmModel` → the `listModels()` catalog → the provider's own `defaultModel`. No model id is hard-coded.
 
-降级不是失败：没有模型、没有 key、超时，都会用一条本地规则生成 `type(scope): 做了什么` 形式的提交信息，并把真实原因显示出来。提交这件事不能被 AI 卡住。
+Degrading is not failing: no model, no key, a timeout — all of them fall back to a local rule that produces a `type(scope): what changed` message and shows the real reason. Committing must not be held up by the AI.
 
-## 9. UI 原则
+## 9. UI principles
 
-下面这些不是审美偏好，是几轮全界面评审里被真实截图抓出来的规则。新增界面时请沿用：
+These are not aesthetic preferences; they are rules caught by real screenshots over several full-interface reviews. Follow them when adding UI:
 
-1. **一个控件只表达一件事**。`∧ 2/3 ∨`（文件内的差异块）与 `‹ 2 / 8 ›`（文件之间）各自成组、各自计数；计数跟着阅读位置走，整个 diff 短到不需要滚动时由上一次点击接管——否则按钮看起来是坏的。
-2. **空态不撒谎**。不是仓库的目录不渲染分支 chip、状态行和提交框，只留"这是什么 / 下一步做什么"。
-3. **只读要看得见，也要真的只读**。只读来源带锁标、无选区、无写按钮；忽略空白模式同理，并在空差异时给一键返回。
-4. **破坏性动作**：按钮写明动词（撤销更改 / 硬重置 / 删除储藏 / 强制推送…）并染红，焦点默认在「取消」，回车不能替用户按下不可逆的按钮。
-5. **错误必须活过阅读时间**：错误 toast 不自动消失，信息 toast 自己退场；失败浮层左对齐、剥掉 `hint:` 样板、超过 6 行截断。
-6. **同一个操作在哪儿都问同样的问题**：任何会改写工作区的动作都走同一条脏工作区确认；右键菜单里点开的是与常驻 `⋯` 完全相同的动作表。
-7. **按钮要看得出来是按钮**：工具条上的次要控件带边框；行内动作是蓝色文字链接；纯读数（如冲突视图的 `1 / 3`）保持中性灰，不假装成动作。
-8. **菜单里不放装饰**：图标单色同尺寸，破坏性行只用红色文字；变体箭头贴着自己的标签居中，不挂在角落；短菜单按最长标签自适应宽度，宁可整句换行也不截成省略号。
-9. **标签要么写全，要么折成 `+N`**。`or…` 这种碎片说不清任何事；一行放不下的引用折成一个带完整名字提示的徽标。
-10. **中文界面不出现原始英文报错**。git 的拒绝、`fatal:` / `error:` 前缀都在 `localizeError` 里过一遍；动作用词也要统一（检出、丢弃），一个动作只有一个动词。
-11. **色相可以作面，不能作小字**。文字用向正文色混合过的 ink token，彩色底上的文字用 `--gwb-on-hue`；浅色与深色都由 token 自动推导，不写第二套暗色覆盖。
-12. **数字要能对得上**：有筛选时头部报"匹配 4 / 11"；表头与数据列严格同宽；列窄时按列自己所在栏的宽度退让，表头和数据行一起退。
+1. **One control expresses one thing.** `∧ 2/3 ∨` (hunks within a file) and `‹ 2 / 8 ›` (between files) are separate groups with separate counters; the counter follows the reading position, and when the whole diff is short enough not to scroll the last click takes over — otherwise the button looks broken.
+2. **Empty states do not lie.** A directory that is not a repository renders no branch chip, no status row and no commit box, only "what this is / what to do next".
+3. **Read-only must be visible, and actually read-only.** A read-only source carries a lock mark, no selection and no write buttons; ignore-whitespace mode is the same, with a one-click way back when the diff is empty.
+4. **Destructive actions**: the button names its verb (Discard changes / Hard reset / Drop stash / Force push …) and is red, focus defaults to "Cancel", and Enter cannot press an irreversible button for the user.
+5. **Errors must outlive the reading time**: an error toast does not vanish on its own while a message toast leaves by itself; a failure popover is left-aligned, with the `hint:` boilerplate stripped and anything past 6 lines truncated.
+6. **The same operation asks the same question everywhere**: anything that rewrites the worktree goes through the same dirty-worktree confirmation; a context menu opens exactly the same action table as the persistent `⋯`.
+7. **A button has to look like a button**: secondary toolbar controls carry a border; in-row actions are blue text links; a pure reading (like the conflict view's `1 / 3`) stays neutral gray and does not pretend to be an action.
+8. **No decoration in menus**: monochrome icons at one size, destructive rows marked by red text only; a variant arrow sits centred under its own label instead of hanging in a corner; a short menu sizes to its longest label and would rather wrap a whole sentence than truncate it with an ellipsis.
+9. **A label is either written out or folded into `+N`.** A fragment like `or…` explains nothing; refs that do not fit on one row fold into a badge whose tooltip carries the full names.
+10. **A Chinese interface never shows raw English errors.** git's refusals and the `fatal:` / `error:` prefixes all pass through `localizeError`; the wording of actions is unified too (checkout, discard) — one action, one verb.
+11. **A hue may be a surface, never small text.** Text uses an ink token mixed toward the body text color, and text on a colored surface uses `--gwb-on-hue`; light and dark are both derived from tokens, with no second dark override.
+12. **Numbers have to add up**: with a filter on, the header says "matched 4 of 11"; header and data columns are strictly the same width; when a column is narrow it yields by the width of its own section, header and data rows together.

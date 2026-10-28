@@ -11,7 +11,7 @@
 [![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.2%2B-4b5563)](#安装)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[English](README.md) · [中文](README.zh.md) · [功能清单](docs/features.md) · [HTTP API](docs/api.md) · [架构](docs/architecture.md) · [设计取舍](docs/jetbrains-parity.md) · [开发与发布](docs/development.md)
+[English](README.md) · [中文](README.zh.md) · [功能清单](docs/features.zh.md) · [HTTP API](docs/api.zh.md) · [架构](docs/architecture.zh.md) · [设计取舍](docs/jetbrains-parity.zh.md) · [开发与发布](docs/development.zh.md)
 
 ![提交页签与变更列表](docs/assets/commit-pane.png)
 
@@ -73,7 +73,7 @@ dsh plugin --profile web add @yann9/dsh-git-workbench@latest
 dsh plugin --profile web remove @yann9/dsh-git-workbench
 ```
 
-`/dsh-git/` 只提供 JSON API 与 SSE 事件流，没有独立页面；任何别的客户端都可以直接复用它（见 [docs/api.md](docs/api.md)）。
+`/dsh-git/` 只提供 JSON API 与 SSE 事件流，没有独立页面；任何别的客户端都可以直接复用它（见 [docs/api.zh.md](docs/api.zh.md)）。
 
 ## 配置
 
@@ -108,7 +108,7 @@ dsh plugin --profile web remove @yann9/dsh-git-workbench
 
 ## 主要能力
 
-完整的 50+ 项对照表在 [docs/features.md](docs/features.md)，这里只列骨架：
+完整的 50+ 项对照表在 [docs/features.zh.md](docs/features.zh.md)，这里只列骨架：
 
 - **暂存**：整文件 / 逐 Hunk（裁剪 patch → `git apply --cached`）/ 逐行；反向取消暂存同样精确。提交永远以 index 为准。
 - **差异阅读**：并排与统一视图、双行号、行内词级高亮、忽略空白（只读保护）、未变区折叠、文件间 `‹ n/m ›` 与块间 `F7`。
@@ -144,25 +144,25 @@ dsh plugin --profile web remove @yann9/dsh-git-workbench
 
 | 文档 | 内容 |
 |---|---|
-| [docs/features.md](docs/features.md) | 与 JetBrains 逐项对照的完整功能表、布局断点、已知限制、路线图 |
-| [docs/api.md](docs/api.md) | `/dsh-git/api` 全部端点、参数、缓存与 CSRF 约定，以及给模型的 8 个工具 |
-| [docs/architecture.md](docs/architecture.md) | host / client 分层、DSH 槽位、状态同步、多语言、安全模型 |
-| [docs/jetbrains-parity.md](docs/jetbrains-parity.md) | 为什么不照抄 JetBrains、为什么不用 iframe、为什么只读是一种渲染路径 |
-| [docs/development.md](docs/development.md) | 开发循环、测试、调试服务器、截图约定、发布到 GitHub / npm 的检查清单 |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 提 PR 前要跑的检查与代码约定 |
+| [docs/features.zh.md](docs/features.zh.md) | 与 JetBrains 逐项对照的完整功能表、布局断点、已知限制、路线图 |
+| [docs/api.zh.md](docs/api.zh.md) | `/dsh-git/api` 全部端点、参数、缓存与 CSRF 约定，以及给模型的 8 个工具 |
+| [docs/architecture.zh.md](docs/architecture.zh.md) | host / client 分层、DSH 槽位、状态同步、多语言、安全模型 |
+| [docs/jetbrains-parity.zh.md](docs/jetbrains-parity.zh.md) | 为什么不照抄 JetBrains、为什么不用 iframe、为什么只读是一种渲染路径 |
+| [docs/development.zh.md](docs/development.zh.md) | 开发循环、测试、调试服务器、截图约定、发布到 GitHub / npm 的检查清单 |
+| [CONTRIBUTING.zh.md](CONTRIBUTING.zh.md) | 提 PR 前要跑的检查与代码约定 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
 
 ## 开发
 
 ```bash
-npm test                     # 104 个单测，使用真实 git 仓库（含 Windows 路径与 CRLF）
+npm test                     # 137 个单测，使用真实 git 仓库（含 Windows 路径与 CRLF）
 
 # 只跑 API、不带 UI，方便调试或给别的客户端用
 node scripts/dev-server.js <仓库路径> 5178
 # → http://127.0.0.1:5178/dsh-git/api/...
 ```
 
-host 与 client 都是可直接运行的 ESM，没有构建步骤：`link:` 指向目录，改代码重启 `dsh web` 即生效。细节见 [docs/development.md](docs/development.md)。
+host 与 client 都是可直接运行的 ESM，没有构建步骤：`link:` 指向目录，改代码重启 `dsh web` 即生效。细节见 [docs/development.zh.md](docs/development.zh.md)。
 
 ## 安全
 
@@ -172,13 +172,13 @@ host 与 client 都是可直接运行的 ESM，没有构建步骤：`link:` 指�
 - `readOnly: true` 时除 `/config` 外的 POST 全部 403。
 - 不在浏览器里跑 git、不在页面里收集凭据；网络操作 120 s 超时且 `GIT_TERMINAL_PROMPT=0`，绝不挂起。
 
-完整说明见 [docs/architecture.md#安全模型](docs/architecture.md#安全模型)。
+完整说明见 [docs/architecture.zh.md#安全模型](docs/architecture.zh.md#安全模型)。
 
 ## 版本
 
 semver，且 `package.json` 的 `version`、[CHANGELOG.md](CHANGELOG.md) 的段落标题与 git tag（`v0.1.0`）三处始终一致。CI 在 Ubuntu 与 Windows 上跑 Node 22 / 24 四组矩阵，合并前必须全绿。
 
-推送 tag 就是发布：`.github/workflows/release.yml` 先跑同一套矩阵当闸门，再建 GitHub Release（说明按 conventional commit 的类型分组），然后用 npm 的 Trusted Publishing（OIDC，仓库里没有 token）把包**暂存**到 npm。暂存不等于发布 —— 包在 npm 上但还装不了，要等维护者用 2FA 批准，每一次发布都留着这道人工关；tarball 出机器之前，流水线会先核对打包出来的文件清单。流程细节与 Trusted Publisher 绑定步骤见 [docs/development.md](docs/development.md)。
+推送 tag 就是发布：`.github/workflows/release.yml` 先跑同一套矩阵当闸门，再建 GitHub Release（说明按 conventional commit 的类型分组），然后用 npm 的 Trusted Publishing（OIDC，仓库里没有 token）把包**暂存**到 npm。暂存不等于发布 —— 包在 npm 上但还装不了，要等维护者用 2FA 批准，每一次发布都留着这道人工关；tarball 出机器之前，流水线会先核对打包出来的文件清单。流程细节与 Trusted Publisher 绑定步骤见 [docs/development.zh.md](docs/development.zh.md)。
 
 ## 许可
 

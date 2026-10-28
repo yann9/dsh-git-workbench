@@ -1,39 +1,48 @@
-# 安全策略
+# Security policy
 
-## 支持的版本
+## Supported versions
 
-安全修复只针对最新发布版本。
+Security fixes target the latest published version only.
 
-| 版本 | 支持 |
+| Version | Supported |
 |---|---|
-| 最新 minor | ✅ |
-| 更早的版本 | ❌ |
+| The latest minor | ✅ |
+| Anything older | ❌ |
 
-## 报告问题
+## Reporting a problem
 
-**不要开公开 issue。** 请通过 GitHub 仓库的 *Security → Report a vulnerability*（Security
-Advisory）私下报告，或直接联系维护者。请包含：受影响的版本、复现步骤、影响范围（例如
-"可以在受害者仓库里执行任意命令"），以及你认为的修复方向（如果有）。
+**Do not open a public issue.** Report it privately through the GitHub repository's
+*Security → Report a vulnerability* (Security Advisory), or contact the maintainer directly.
+Please include the affected version, the reproduction steps, the impact (for example "arbitrary
+code execution in the victim's repository"), and the fix direction you have in mind, if any.
 
-确认后会在修复发布时一并致谢（除非你希望匿名）。
+Once confirmed, you are credited in the release that ships the fix (unless you prefer to stay anonymous).
 
-## 插件承诺不做的事
+## What the plugin promises not to do
 
-这些边界是设计的一部分，任何绕过它们的行为都视为安全缺陷：
+These boundaries are part of the design; anything that gets around them is a security defect:
 
-- **不经过 shell**：每次 git 调用都是 `spawn('git', argv)`；路径、分支名、远程名、脚本名都
-  以 argv 片段出现，并且经过白名单校验。用户输入不会被拼接成命令字符串。
-- **不执行任意命令**：提交前检查只运行仓库 `package.json` 里已存在的具名脚本，脚本名必须
-  匹配 `^[A-Za-z0-9][A-Za-z0-9:_.-]{0,63}$`；接口不接受命令行。
-- **不收集凭据**：网络操作设置 `GIT_TERMINAL_PROMPT=0`，不会在页面里索要密码或 token。
-- **不越出仓库目录**：路径参数拒绝 `..` 逃逸，命令的 `cwd` 固定为解析后的仓库根。
-- **写操作串行**：所有 index / 工作区变更经过 `withWriteLock`，不会互相踩踏。
-- **拒绝跨站请求**：`Origin` 与 `Host` 不匹配的请求返回 403；`/dsh-git/` 下只暴露 API，
-  没有静态目录，请求体上限 2 MB。
-- **可完全只读**：`readOnly: true` 时除 `/config` 外所有 POST 返回 403，界面也不渲染写入入口。
+- **No shell**: every git call is `spawn('git', argv)`; paths, branch names, remote names and script
+  names all appear as argv segments and are validated against allow lists. User input is never
+  concatenated into a command string.
+- **No arbitrary command execution**: the pre-commit checks only run named scripts that already exist
+  in the repository's `package.json`, and the name must match `^[A-Za-z0-9][A-Za-z0-9:_.-]{0,63}$`;
+  no endpoint accepts a command line.
+- **No credentials collected**: network operations set `GIT_TERMINAL_PROMPT=0` and never ask for a
+  password or token in the page.
+- **No escape from the repository directory**: path parameters reject `..` escapes, and a command's
+  `cwd` is fixed to the resolved repository root.
+- **Writes are serialized**: every index / worktree change goes through `withWriteLock`, so they never
+  trample each other.
+- **Cross-site requests rejected**: a request whose `Origin` does not match `Host` returns 403;
+  `/dsh-git/` exposes only the API, with no static directory, and request bodies cap at 2 MB.
+- **Fully read-only if asked**: under `readOnly: true` every POST except `/config` returns 403, and
+  the UI renders no write entry points either.
 
-## 已知的非目标
+## Known non-goals
 
-- 插件不防御**恶意仓库内容**（例如精心构造的 `.git/config`、超大文件、恶意字段）。
-  它面向"你自己的仓库"，不是在沙箱里打开不受信任的仓库。
-- 插件的权限与 DSH 宿主进程相同。不要用高权限账号运行 `dsh web` 并同时打开不受信任的页面。
+- The plugin does not defend against **malicious repository content** (a crafted `.git/config`,
+  huge files, hostile fields). It is built for "your own repository", not for opening untrusted
+  repositories inside a sandbox.
+- The plugin runs with the same privileges as the DSH host process. Do not run `dsh web` under a
+  highly privileged account while opening untrusted pages in the same session.

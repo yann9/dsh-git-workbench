@@ -1,167 +1,168 @@
-# 开发与发布
+# Development and release
 
-## 环境
+## Environment
 
 - Node `^22.19.0 || >=24.0.0`
-- `git` 在 PATH 上（测试会在临时目录里真的建仓库、真的暂存）
-- `pnpm`（只用 `dsh plugin` 时需要；跑测试不需要任何依赖，`npm install` 不是必需步骤）
-- DSH `0.2.1-rc.2` 以上
+- `git` on `PATH` (the tests really create repositories and really stage in temporary directories)
+- `pnpm` (only needed for `dsh plugin`; the tests need no dependencies at all, so `npm install` is not a required step)
+- DSH `0.2.1-rc.2` or newer
 
-## 开发循环
+## Development loop
 
 ```bash
-# 建符号链接而不是复制，改代码重启即生效
-dsh plugin --profile web add link:<仓库目录的绝对路径>
+# a symlink rather than a copy, so a restart picks up the change
+dsh plugin --profile web add link:<absolute path of this repository>
 
 dsh web
 ```
 
-bundle 层只在启动时读取，所以改完 host 代码要重启 `dsh web`；改 client chunk 同样需要重启（chunk 在启动时按顺序 materialise）。
+The bundle layer is read at startup only, so host changes need a `dsh web` restart; client chunks need the same restart (chunks are materialised in order at startup).
 
-如果 profile 没有自动登记 bundle，在 `~/.dsh/profiles/web/package.json` 的 `dsh.profile.bundles` 里加 `"@yann9/dsh-git-workbench"`。
+If the profile did not register the bundle automatically, add `"@yann9/dsh-git-workbench"` to `dsh.profile.bundles` in `~/.dsh/profiles/web/package.json`.
 
-只调 API 时可以完全不装插件：
+For API-only work the plugin does not have to be installed at all:
 
 ```bash
-node scripts/dev-server.js <仓库路径> 5178
+node scripts/dev-server.js <repo path> 5178
 # → http://127.0.0.1:5178/dsh-git/api/status
 ```
 
-## 测试
+## Tests
 
 ```bash
 npm test
 ```
 
-134 个用例，全部使用真实 git 仓库，覆盖：
+137 cases, all against real git repositories, covering:
 
-| 文件 | 内容 |
+| File | Contents |
 |---|---|
-| `test/git-engine.test.js` | status v2 解析、hunk / 行级暂存与反向取消暂存、重命名、stash 部分入架、rebase / reword 计划、初始化仓库 |
-| `test/http-api.test.js` | 每个端点、只读 403、CSRF、`ignoreWhitespace`、按变更列表提交、远程仓库校验、控制台隔离 |
-| `test/client-pure.test.js` | 纯函数（diff 切片、日志筛选与归类、标签折叠、i18n 回退）与样式契约（无行首 `//`、花括号配平、`statusColor` 只用 ink token） |
-| `test/turn-and-message.test.js` | 轮次快照与 AI 提交信息的降级链路 |
-| `test/release-notes.test.js` | 发布说明按 conventional 前缀分组、破坏性变更的判定、与上一个 tag 的比较 |
-| `test/stage-release.test.js` | 暂存脚本：已发布则跳过、暂存包的文件清单、预发布走 `next` 标签 |
+| `test/git-engine.test.js` | status v2 parsing, hunk / line staging and unstaging in reverse, renames, partial stash, rebase / reword plans, repository init |
+| `test/http-api.test.js` | every endpoint, read-only 403, CSRF, `ignoreWhitespace`, committing by changelist, remote validation, console isolation |
+| `test/client-pure.test.js` | pure functions (diff slicing, log filtering and grouping, label folding, i18n fallback) and stylesheet contracts (no leading `//`, balanced braces, `statusColor` uses ink tokens only) |
+| `test/turn-and-message.test.js` | turn snapshots and the AI commit-message fallback chain |
+| `test/release-notes.test.js` | release notes grouped by conventional prefix, breaking-change detection, comparison against the previous tag |
+| `test/stage-release.test.js` | the staging script: skip an already published version, the staged tarball's file list, a prerelease going out under `next` |
+| `test/docs-i18n.test.js` | the English and Chinese documents keep the same structure, and every relative link and anchor resolves |
 
-约定：
+Conventions:
 
-- 测试只碰临时目录或注入的 fixture，**不碰开发者日常使用的 DSH 数据目录**。
-- 需要造破坏性状态的用例要自己备份、自己还原，收尾核对 `git status` 与 stash 列表，而不是只相信退出码。
-- Windows 与 Linux 都要能跑：路径分隔符、CRLF、盘符大小写都别假设。
+- The tests touch only temporary directories or injected fixtures — **never the DSH data directory a developer uses day to day**.
+- A case that needs to create destructive state backs it up and restores it itself, and checks `git status` and the stash list at the end instead of trusting the exit code.
+- It has to run on Windows and Linux both: never assume a path separator, a line ending or drive-letter case.
 
-## 截图约定
+## Screenshot conventions
 
-文档里的图来自真实的 DSH 实例（隔离的数据目录，不要指向日常使用的 `~/.dsh`）：
+The images in the docs come from a real DSH instance (an isolated data directory — never point it at the `~/.dsh` you use day to day):
 
-- 视口 **1600 × 900**，`deviceScaleFactor: 2`；右侧工作台面板钉在 **约 360px**（拖右侧栏左边缘的 `col-resize` 分隔条，脚本每次显式拖一次），左侧保留会话列。差异与冲突要占满主区域（收起右侧栏），否则会自动退回统一视图。
-- 每个界面只出**浅色**一张，命名 `docs/assets/<surface>.png`：
-  `commit-pane`、`diff`、`history`、`conflict`、`stash-dialog`。插件跟随宿主主题，深色没有单独一套。
-- 英文界面另出一套，文件名加 `-en` 中缀：`docs/assets/<surface>-en.png`。
-  切换宿主语言在 **设置（Ctrl+Alt+,）→ 通用设置 → 语言**；截完记得切回中文。
-- 主区域保留真实会话（而不是空白首页），提交页的提交信息由真实账号生成；储藏弹窗、差异与冲突沿用同一会话，避免大块空白。
-- 只裁浏览器外框，不裁界面；不要出现用户仓库的真实路径、分支名或提交信息——用演示仓库。
-- 关键交互状态（只读徽标、冲突计数、进行中的网络操作）值得单独截，但不要为此拼图或加标注。
+- Viewport **1600 × 900**, `deviceScaleFactor: 2`; the right-hand workbench panel is pinned at **about 360 px** (drag the right sidebar's `col-resize` splitter; the script drags it explicitly every run), leaving the conversation column on the left. Diff and conflict need the whole main area (collapse the right sidebar), otherwise they fall back to the unified view.
+- One **light** shot per surface, named `docs/assets/<surface>.png`:
+  `commit-pane`, `diff`, `history`, `conflict`, `stash-dialog`. The plugin follows the host theme, so there is no separate dark set.
+- A second set for the English UI, with `-en` in the file name: `docs/assets/<surface>-en.png`.
+  Switch the host language in **Settings (Ctrl+Alt+,) → General → Language**; switch back to Chinese when done.
+- Keep a real conversation in the main area (not the blank start page), and let a real account generate the commit message; the stash dialog, diff and conflict reuse the same conversation so no large empty area shows.
+- Crop the browser chrome only, never the interface; no real path, branch name or commit message from the user's repository — use a demo repository.
+- Key interaction states (a read-only badge, a conflict count, a network operation in progress) deserve their own shot, but do not build collages or annotations for them.
 
-## 发布：一个 tag 触发全部
+## Release: one tag ships everything
 
-版本号三处必须一致：`package.json` 的 `version`、`CHANGELOG.md` 的段落标题、git tag。
+The version number has to agree in three places: `package.json`'s `version`, the `CHANGELOG.md` heading, and the git tag.
 
 ```bash
-git add -A && git commit -m "feat: …"     # 提交信息写 conventional，release notes 靠它分组
+git add -A && git commit -m "feat: …"     # conventional messages; release notes group by them
 git tag v0.1.0
-git push origin main --tags               # tag 一落地就出 GitHub Release 并把包暂存到 npm
+git push origin main --tags               # the tag creates the GitHub Release and stages the tarball on npm
 ```
 
-`.github/workflows/release.yml` 接手，顺序是：
+`.github/workflows/release.yml` takes over, in this order:
 
-1. **发布闸门**：跑和 CI 完全相同的四矩阵测试（Ubuntu / Windows × Node 22 / 24），全绿才继续。
-2. **GitHub Release**：`scripts/release-notes.js` 生成说明，`gh release create`（同一 tag 重跑则 `release edit`；tag 里带 `-rc.N` 之类后缀的自动标成 prerelease）。
-3. **npm 暂存**：`scripts/stage-release.js` 执行 `npm stage publish --provenance --access public`，把 tarball 推进 npm 的暂存队列。**暂存不是发布**：包已经躺在 npm 上，但谁都装不了，直到维护者用 2FA 批准。预发布版本自动加 `--tag next`，不抢稳定版的 `latest`；这个版本已经在 npm 上了就跳过暂存。
-4. **校验暂存包**：脚本按 npm 实际打包出来的文件清单核对 `cordis.patch.yml`、`src/index.js`、七个 client chunk、两个 locale 和 `assets/icon.png` 都在包里，`docs/internal/` 不在包里 —— DSH 解析 bundle 需要的东西缺一个都算发布失败，脚本直接非零退出。
-5. **人工批准**：workflow 把 stage id 写进 job summary，维护者在自己终端跑 `npm stage approve <stage-id>`（2FA 提示留在这个终端里，不要贴到聊天或工单里）。
+1. **Release gate**: the same four-matrix test run as CI (Ubuntu / Windows × Node 22 / 24); nothing continues until it is green.
+2. **GitHub Release**: `scripts/release-notes.js` generates the notes and `gh release create` publishes them (a re-run on the same tag does `release edit`; a tag with a `-rc.N`-style suffix is marked prerelease automatically).
+3. **npm staging**: `scripts/stage-release.js` runs `npm stage publish --provenance --access public` and pushes the tarball into npm's staging queue. **Staged is not published**: the package sits on npm, but nobody can install it until the maintainer approves it with 2FA. A prerelease gets `--tag next` automatically and does not take the stable `latest`; a version already on npm skips staging.
+4. **Verify the staged tarball**: from the file list npm reports for the actual pack, the script checks that `cordis.patch.yml`, `src/index.js`, the seven client chunks, both locales and `assets/icon.png` are in the package, and that `docs/internal/` is not — anything DSH needs to resolve the bundle being missing is a release failure, and the script exits non-zero.
+5. **Manual approval**: the workflow writes the stage id into the job summary, and the maintainer runs `npm stage approve <stage-id>` in their own terminal (the 2FA prompt stays in that terminal; never paste it into a chat or a ticket).
 
-**仓库里不放任何 npm token**：发布用 npm 的 Trusted Publishing（OIDC）。GitHub Actions 的这次运行身份就是发布凭据，npm 那边按「哪个仓库、哪个 workflow 文件」来认。绑定是一次性的人工操作，只能在 npm 网站做（脚本代替不了）：
+**No npm token lives in the repository**: publishing uses npm's Trusted Publishing (OIDC). The GitHub Actions run identity *is* the publishing credential, and npm recognises it by which repository and which workflow file. The binding is a one-off manual step that only the npm website can do (no script can):
 
-1. 打开包的 **Settings → Publishing access → Trusted Publisher**（`https://www.npmjs.com/settings/yann9/packages/dsh-git-workbench/access`）。
-2. 填 GitHub Actions：Repository owner `yann9`、Repository name `dsh-git-workbench`、Workflow filename `release.yml`（**只填文件名，不填 `.github/workflows/` 路径**）、Environment 留空（workflow 没声明 environment）。
-3. **勾上允许 `npm stage publish`**：Trusted Publisher 有两个互不相关的权限 —— 暂存（`createStagedPackage`）和直接发布（`createPackage`），npm 官网对应两个复选框。本仓库只暂存不直发，所以**只勾暂存**就够了；反过来说，勾了直发权限却没走审批，等于把 2FA 绕过去了。权限对不上时，暂存会以 `403 … OIDC permission denied for this action` 失败。
-4. 未验证的新绑定 48 小时后过期，所以要么绑完立刻推 tag 让它暂存一次，要么下次再绑。
+1. Open the package's **Settings → Publishing access → Trusted Publisher** (`https://www.npmjs.com/settings/yann9/packages/dsh-git-workbench/access`).
+2. Fill in GitHub Actions: Repository owner `yann9`, Repository name `dsh-git-workbench`, Workflow filename `release.yml` (**the file name only, not the `.github/workflows/` path**), Environment left blank (the workflow declares none).
+3. **Tick the permission for `npm stage publish`**: Trusted Publisher has two unrelated permissions — staging (`createStagedPackage`) and direct publishing (`createPackage`), the two checkboxes on the npm site. This repository stages and never publishes directly, so **staging alone** is enough; conversely, direct-publish permission with no approval step means walking around 2FA. When the permissions do not match, staging fails with `403 … OIDC permission denied for this action`.
+4. An unverified new binding expires after 48 hours, so either push a tag right after binding so it stages once, or bind again next time.
 
-也可以用 CLI 配（需要 2FA）：`npm trust github @yann9/dsh-git-workbench --file release.yml --repo yann9/dsh-git-workbench --allow-stage-publish --registry=https://registry.npmjs.org/`；每个包同一时间只有一条绑定，要改先 `npm trust list` 拿 id、再 `npm trust revoke --id=<id>`。从「只许直发」切到「只许暂存」就是这么换：撤销旧的，再按上面的命令建一条新的。
+The CLI can configure it too (2FA required): `npm trust github @yann9/dsh-git-workbench --file release.yml --repo yann9/dsh-git-workbench --allow-stage-publish --registry=https://registry.npmjs.org/`; a package holds one binding at a time, so to change it, `npm trust list` for the id first and then `npm trust revoke --id=<id>`. Switching from "publish only" to "stage only" is exactly that: revoke the old one, then create a new one with the command above.
 
-另外两件事：workflow 的 `id-token: write` 权限是凭据来源，去掉它就换不到发布身份；发布用的 npm CLI 必须 **≥ 11.16**（`npm stage` 子命令从 11.15 起就有了），所以 release job 钉 Node 24（Node 22 自带的 npm 太旧，脚本里有一步显式检查并报错）。发布事件只用 `push: tags`，不要用 `pull_request_target` —— 那是已知攻击面。
+Two more things: the workflow's `id-token: write` permission is where the credential comes from — remove it and no publishing identity can be obtained; and the npm CLI doing the publishing must be **≥ 11.16** (the `npm stage` subcommand has existed since 11.15), which is why the release job pins Node 24 (Node 22's bundled npm is too old, and the script has an explicit check that errors out). The publishing event is `push: tags` only — never `pull_request_target`, which is a known attack surface.
 
-CI 里的短期 OIDC token 只能跑 `npm stage publish` / `npm publish`，**跑不了 `npm stage list` / `view` / `download`**。所以校验只看打包时 npm 自己吐出来的文件清单，暂存包本体要人工在自己终端里下载查看：
+A short-lived OIDC token in CI can run `npm stage publish` / `npm publish` and **cannot run `npm stage list` / `view` / `download`**. So verification looks only at the file list npm emits while packing, and the staged tarball itself is downloaded by hand in a local terminal:
 
 ```bash
 npm stage download <stage-id> --registry=https://registry.npmjs.org/
 ```
 
-第一次绑定前如果要先出包，就走下面的手动发布（OTP）路子，之后再补绑定。
+To cut a package before the first binding exists, take the manual publish (OTP) route below and add the binding afterwards.
 
-发出去之前还有两行核对：`LICENSE` 的版权人一行（当前是 `dsh-git-workbench contributors`）、`package.json` 的 `repository` / `homepage` / `bugs` / `author` 是真实账号信息。`docs/internal/` 已在 `.gitignore` 里，设计日志不会被推上去。
+Two lines to check before shipping: the copyright line in `LICENSE` (currently `dsh-git-workbench contributors`), and that `package.json`'s `repository` / `homepage` / `bugs` / `author` are the real account details. `docs/internal/` is in `.gitignore`, so the design journal never gets pushed.
 
-`scripts/` 不在 `files` 里，发布用的脚本不会进包。
+`scripts/` is not in `files`, so the release scripts never enter the package.
 
-### release notes 是怎么分组的
+### How release notes are grouped
 
-- 取 `git log --no-merges <上一个 tag>..<本次 tag>`，按 conventional 前缀归到 Features / Bug fixes / Performance / Refactoring / Documentation / Style / Tests / Build / CI / Reverts / Chores，没有前缀的进 Other changes。
-- 前缀带 `!` 或正文里出现 `BREAKING CHANGE:` 的，额外单列到 Breaking changes。
-- `chore(release): …` 这类发布整理提交自己过滤掉，说明里不写。
-- `CHANGELOG.md` 里对应版本的那段作为开头正文（人写的摘要在前，提交列表是审计线索）；找不到就只列提交。
-- 本地预览：
+- Take `git log --no-merges <previous tag>..<this tag>` and group by conventional prefix into Features / Bug fixes / Performance / Refactoring / Documentation / Style / Tests / Build / CI / Reverts / Chores; anything without a prefix goes to Other changes.
+- A prefix with `!` or a body containing `BREAKING CHANGE:` is additionally listed under Breaking changes.
+- Release housekeeping commits such as `chore(release): …` filter themselves out and do not appear in the notes.
+- The matching section of `CHANGELOG.md` becomes the opening prose (the human summary first, the commit list as the audit trail); when there is no section, only the commits are listed.
+- Preview locally:
 
 ```bash
 node scripts/release-notes.js --tag v0.1.0 --output /tmp/notes.md
-node scripts/release-notes.js --tag v0.1.0 --no-changelog   # 只要提交列表
+node scripts/release-notes.js --tag v0.1.0 --no-changelog   # the commit list only
 ```
 
-## 手动发布到 npm
+## Publishing to npm by hand
 
-包名是 `@yann9/dsh-git-workbench`。不带 scope 的 `dsh-git-workbench` 在 npm 上已被另一个项目占用（`0.3.4`，维护者不是本项目），所以从一开始就用 scope。
+The package name is `@yann9/dsh-git-workbench`. The unscoped `dsh-git-workbench` is taken on npm by another project (`0.3.4`, a different maintainer), so the scope was there from the start.
 
-包名出现在三处，改的时候必须一起改，否则启动时找不到 bundle：
+The package name appears in three places and they must change together, otherwise the bundle cannot be found at startup:
 
-- `package.json` 的 `name`；
-- `cordis.patch.yml` 的 `name:`（DSH 按它解析模块）；
-- client chunk 的 `id` 与 `require('<包名>/client.*.js')`，以及 `test/client-pure.test.js` 里断言的 bundle key。
+- `package.json`'s `name`;
+- `name:` in `cordis.patch.yml` (DSH resolves the module by it);
+- the client chunks' `id` and `require('<package name>/client.*.js')`, plus the bundle key asserted in `test/client-pure.test.js`.
 
-已安装的 profile 也要同步：`node_modules/@<scope>/<包名>` 的目录、`package.json` 里的依赖键和 `dsh.profile.bundles` 条目。
+Installed profiles need syncing too: the `node_modules/@<scope>/<package>` directory, the dependency key in `package.json`, and the `dsh.profile.bundles` entry.
 
-不经过 CI 手动发布时的检查清单（默认也走暂存，和流水线保持一致）：
+The checklist for publishing without CI (staging by default, matching the pipeline):
 
 ```bash
 npm test
-npm pack --dry-run        # 看打包内容：src / locale / cordis.patch.yml / docs（含 assets）/ README
+npm pack --dry-run        # inspect the payload: src / locale / cordis.patch.yml / docs (with assets) / README
 npm stage publish --access public
-npm stage list            # 找到刚暂存的 stage id
+npm stage list            # find the stage id just created
 npm stage approve <stage-id>
 ```
 
-`npm stage publish` 本身不要 2FA，`npm stage approve` / `npm stage reject` 要 —— 提示在本机终端里，别把 OTP 贴到聊天里。确实要一步直发时才用 `npm publish --access public`（没有暂存记录，也就没有审批这一步）。
+`npm stage publish` itself needs no 2FA; `npm stage approve` / `npm stage reject` do — the prompt is in your local terminal, so never paste the OTP into a chat. Only when a direct one-step publish really is wanted, use `npm publish --access public` (no staging record, and therefore no approval step).
 
-手动发布**不要**加 `--provenance`：provenance 只能由 CI 生成，本机跑会报 `EUSAGE Automatic provenance generation not supported for provider: null`。要带 provenance 就走上面的 tag 流水线。
+A manual publish must **not** pass `--provenance`: provenance can only be generated by CI, and locally it fails with `EUSAGE Automatic provenance generation not supported for provider: null`. For provenance, use the tag pipeline above.
 
-`publishConfig.registry` 已经钉死官方 `registry.npmjs.org`：本机默认源可能被换成镜像（npmmirror 之流只读不写），没有这一行 `npm publish` 会打到镜像上失败。登录也要指官方源，镜像的 token 不通用：
+`publishConfig.registry` pins the official `registry.npmjs.org`: a local default may have been switched to a mirror (npmmirror and friends are read-only), and without that line `npm publish` would hit the mirror and fail. Logging in has to point at the official registry too — a mirror's token does not work there:
 
 ```bash
 npm login --registry=https://registry.npmjs.org/
 npm whoami --registry=https://registry.npmjs.org/
 ```
 
-`npm stage` 的子命令同样要指官方源 —— 镜像不实现 `/-/stage` 这些接口，`approve` 带上 `--registry=https://registry.npmjs.org/` 才不会打空。
+The `npm stage` subcommands likewise have to point at the official registry — a mirror does not implement the `/-/stage` endpoints, so `approve` needs `--registry=https://registry.npmjs.org/` to hit anything.
 
-`package.json` 的 `files` 已经限定为 `src`、`locale/*.json`、`cordis.patch.yml`、`README.md`、`README.zh.md`、`CHANGELOG.md`、`CONTRIBUTING.md`、`SECURITY.md`、`docs/*.md` 与 `docs/assets`；`package.json` 与 `LICENSE` 由 npm 自动包含。`docs/internal/` 既在 `.gitignore` 里也不在 `files` 里，不会进包（`scripts/stage-release.js` 还会再查一遍）。发布前先 `npm login`（项目里没有 `.npmrc` 或 token），发布后从干净 profile 验一次：
+`package.json`'s `files` is limited to `src`, `locale/*.json`, `cordis.patch.yml`, `README.md`, `README.zh.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `CONTRIBUTING.zh.md`, `SECURITY.md`, `SECURITY.zh.md`, `docs/*.md` and `docs/assets`; `package.json` and `LICENSE` are included by npm automatically. `docs/internal/` is both in `.gitignore` and outside `files`, so it never ships (`scripts/stage-release.js` checks again). `npm login` first (the project has no `.npmrc` or token), and verify from a clean profile afterwards:
 
 ```bash
 dsh plugin --profile web add @yann9/dsh-git-workbench
 dsh web
 ```
 
-## PR 之前
+## Before a PR
 
-- `npm test` 全绿。
-- 改 host 代码：`node --check` 每个改动文件；确认没有引入 shell 调用（所有 git 只走 `exec.js`）。
-- 改 UI：中英文词条一起加；在浅色与深色下各看一眼；窄栏（面板 ~440px）不应出现横向滚动。
-- 改文档：README 只留骨架，细节进 `docs/`；不要写本机绝对路径。
+- `npm test` is green.
+- For host changes: `node --check` every touched file; confirm no shell call was introduced (every git call goes through `exec.js`).
+- For UI changes: add the Chinese and English strings together; look at both light and dark; a narrow column (panel ~440 px) must not produce a horizontal scrollbar.
+- For docs: the README keeps only the skeleton, detail goes into `docs/`; never write absolute paths from your machine.

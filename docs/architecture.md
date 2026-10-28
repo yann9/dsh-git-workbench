@@ -1,157 +1,157 @@
-# 架构
+# Architecture
 
 ```
 src/
-├── index.js              host 入口：注册路由、槽位、延迟注册工具
+├── index.js              host entry: registers routes, slots, deferred tools
 ├── git/
-│   ├── exec.js           所有 git 调用：argv 数组、无 shell、locale 固定、控制台记录
-│   ├── repo.js           status(v2) / log / branches / blame / remotes 解析
-│   ├── diff.js           unified diff → 带双行号的 hunk 模型
-│   ├── patch.js          选区 → 裁剪 patch → apply --cached
-│   ├── turns.js          会话某一轮的快照（ctx.workspaceChanges → FileDiff）
-│   ├── workspaces.js     DSH 工作区注册表 → 可用的仓库列表
-│   ├── revision.js       仓库修订 token（HEAD + index/refs）
-│   ├── checks.js         package.json 脚本发现与非交互执行
-│   ├── conflict.js       冲突分段、逐块解决
-│   ├── rebase-editor.js  GIT_SEQUENCE_EDITOR 的 todo 改写器
-│   ├── reword-editor.js  GIT_EDITOR 的提交信息改写器
-│   └── service.js        唯一的状态变更入口，写操作串行化
-├── llm/commit-message.js 提交信息起草（ctx.llm → 失败降级为本地规则）
-├── http/routes.js        /dsh-git 前缀路由：JSON API + SSE 事件流
-├── tools.js              给模型的 8 个结构化工具
-├── tools-boot.js         工具依赖延迟加载（缺少 dsh-tools 也不影响 UI）
+│   ├── exec.js           every git call: argv array, no shell, fixed locale, console log
+│   ├── repo.js           status(v2) / log / branches / blame / remotes parsing
+│   ├── diff.js           unified diff → hunk model with both line numbers
+│   ├── patch.js          selection → trimmed patch → apply --cached
+│   ├── turns.js          per-turn snapshot (ctx.workspaceChanges → FileDiff)
+│   ├── workspaces.js     DSH workspace registry → the repositories we can open
+│   ├── revision.js       repository revision token (HEAD + index/refs)
+│   ├── checks.js         package.json script discovery and non-interactive runs
+│   ├── conflict.js       conflict segmentation, block-by-block resolution
+│   ├── rebase-editor.js  the todo rewriter behind GIT_SEQUENCE_EDITOR
+│   ├── reword-editor.js  the message rewriter behind GIT_EDITOR
+│   └── service.js        the only state-changing entry, serializing writes
+├── llm/commit-message.js commit-message drafting (ctx.llm → local rules on failure)
+├── http/routes.js        /dsh-git prefix routes: JSON API + SSE stream
+├── tools.js              the 8 structured tools for the model
+├── tools-boot.js         deferred tool dependencies (a missing dsh-tools leaves the UI working)
 └── client/
-    ├── browser.js        浏览器入口：按依赖顺序 materialise chunk、注册槽位
-    ├── client.i18n.js    词条与错误本地化
-    ├── client.styles.js  设计 token 样式表（注入一次，全部收在 .gwb 下）
-    ├── client.core.js    API · stores · hooks · 共享 git 动作
-    ├── client.ui.js      原子组件 + 菜单 / 弹层 / 确认
-    ├── client.shell.js   会话头芯片 · 分支菜单 · 设置表单
+    ├── browser.js        browser entry: materialise chunks in dependency order, register slots
+    ├── client.i18n.js    strings and error localization
+    ├── client.styles.js  design-token stylesheet (injected once, all of it under .gwb)
+    ├── client.core.js    API · stores · hooks · shared git actions
+    ├── client.ui.js      atoms + menus / popovers / confirmations
+    ├── client.shell.js   session-header chip · branch menu · settings form
     ├── client.panes.js   CommitPane · LogPane
-    └── client.diff.js    DiffView（首次打开时懒加载）
+    └── client.diff.js    DiffView (lazy-loaded the first time it opens)
 ```
 
-host 与 client 都是可直接运行的 ESM，**没有构建步骤**：`dsh plugin add link:<dir>` 指向目录，改代码重启即生效，不需要 tsdown、不需要打包产物与源码同步。
+Both host and client are plain ESM that runs as-is, **with no build step**: `dsh plugin add link:<dir>` points at the directory, and a restart picks up the change — no tsdown, no built artifact to keep in sync with the source.
 
-## 两层各自负责什么
+## What each layer owns
 
-**host** 拥有唯一的数据真相：所有 git 调用、所有写操作、所有解析。它对外只暴露 `/dsh-git/api`（[见 api.md](api.md)）和 8 个模型工具，两者走同一层 `GitService`。
+**host** owns the single source of truth: every git call, every write, every parse. It exposes only `/dsh-git/api` ([see api.md](api.md)) and the 8 model tools, and both go through the same `GitService` layer.
 
-**client** 只负责呈现和手势：它 `fetch` API、维护本地视图状态（勾选、滚动、过滤、草稿、变更列表），不直接碰 git，也不保存任何仓库事实。
+**client** only presents and handles gestures: it `fetch`es the API and keeps local view state (selections, scroll, filters, drafts, changelists). It never touches git and stores no repository facts.
 
-这条边界换来两件事：
+That boundary buys two things:
 
-1. **Agent 与面板一致**。模型调 `git_stage` 之后，面板下一次刷新看到的是同一套规则算出来的结果。
-2. **UI 可替换**。界面可以重做（这个项目就从 iframe 重做过一次），API 契约不用动。
+1. **The Agent and the panel agree.** After the model calls `git_stage`, the panel's next refresh shows a result computed by the same rules.
+2. **The UI is replaceable.** The interface can be redone (this project rebuilt it once, out of an iframe) without moving the API contract.
 
-## 客户端 chunk 的划分理由
+## Why the client is split into these chunks
 
-第一版把三个界面塞进一个文件，用 `mode`/`view`/`pane` 的组合分支切换。结果是同一个函数要同时服务"可写的工作区 diff"和"只读的历史 diff"，任何一个分支改坏都会影响三处。
+The first version packed all three panes into one file and switched between them with `mode`/`view`/`pane` combinations. The result was one function serving both "the writable worktree diff" and "the read-only history diff", and breaking any branch of it broke three places.
 
-现在的边界是：
+The boundaries now are:
 
-- **commit** 是唯一知道"暂存 / 提交"这两个词的组件；
-- **log** 不碰暂存区：它只读提交、切换/新建分支，没有任何 stage/commit 调用；
-- **diff** 的可写性由 `source` 在装载时一次性决定：只读路径上，选区、hunk 动作、暂存按钮在渲染层根本不存在。
+- **commit** is the only component that knows the words "stage" and "commit";
+- **log** never touches the index: it reads commits and switches/creates branches, with no stage/commit calls at all;
+- **diff** has its writability decided once, at load, by `source`: on the read-only path the selection, the hunk actions and the stage buttons simply do not exist in the render tree.
 
-加第四个界面（比如冲突编辑器独立成页）= 加一个 chunk + 注册一个槽位，不碰现有组件。
+Adding a fourth pane (say, the conflict editor as a page of its own) = one more chunk + one more slot registration, with no existing component touched.
 
-## 为什么是原生组件而不是 iframe
+## Why native components instead of an iframe
 
-第一版用 iframe 承载独立文档，代价很快显形：每个界面一份重复工具栏、主题要自己再实现一遍、快捷键被困在文档里、切页签丢状态——这些恰好都是"像不像 IDE"的分界线。
+The first version hosted an independent document in an iframe, and the cost showed up quickly: a duplicated toolbar per pane, a theme that had to be reimplemented, shortcuts trapped inside the document, state lost on every tab switch — all of them exactly the line between "feels like an IDE" and "doesn't".
 
-现在三个界面都是直接挂进宿主 React 树的组件：
+All three panes are now components mounted straight into the host React tree:
 
-- `require('react')` 用宿主实例；
-- 样式注入一次（`.gwb` 作用域），颜色取宿主设计 token（`--dsw-alias-*`），明暗自动跟随宿主，没有自己的主题开关；
-- 快捷键绑定在组件根节点上，不依赖文档边界；
-- 列表点文件就是一次函数调用 `openDiff(ctx, …)`：写入一个小 store，再把会话视图切到「差异」。
+- `require('react')` resolves to the host's instance;
+- the stylesheet is injected once (scoped to `.gwb`), colors come from the host's design tokens (`--dsw-alias-*`), light and dark follow automatically, and there is no theme switch of our own;
+- shortcuts are bound on the component root, not to a document boundary;
+- clicking a file is one function call, `openDiff(ctx, …)`: write to a small store, then switch the session view to "Diff".
 
-HTTP 层保持不变，`/dsh-git/api` 仍是唯一数据源。
+The HTTP layer is unchanged, and `/dsh-git/api` is still the only source of data.
 
-## 三个界面与 DSH 槽位
+## Three panes and the DSH slots
 
-| 界面 | 落点 | 说明 |
+| Pane | Where it lands | Notes |
 |---|---|---|
-| 提交 | 右侧栏页签 `sidebar.right.pane.tab` | 可拖到别的面板、拆分、浮动、全屏 |
-| 历史 | 同上 | 另一个页签，与提交互不隶属 |
-| 差异 | `conversation.view` 视图环（与「对话」「轨迹」并列） | 单例：第二次点文件只替换内容 |
+| Commit | Right sidebar tab, `sidebar.right.pane.tab` | Draggable to another panel, splittable, floatable, fullscreen |
+| History | Same | Another tab, not subordinate to Commit |
+| Diff | `conversation.view` ring (next to "Chat" and "Trajectory") | Singleton: a second file click only replaces the content |
 
-页签类型注册时声明 `guide` 条目，右侧栏 `+` 的引导页就会列出「提交」「历史」；引导条目的标题与页签标题共用同一个词条（`tab.commit` / `tab.log` / `tab.console`），免得同一个面板在底栏和右侧栏叫两个名字。
+Tab kinds register a `guide` entry as well, so the right sidebar's `+` guide page lists "Commit" and "History"; the guide entry and the tab title share the same string (`tab.commit` / `tab.log` / `tab.console`), so one pane never goes by two names in the bottom dock and the right sidebar.
 
-**与 dsh-better-sidebar 的共存**：那个插件自有一套底部工作台，页签只来自它自己的 `ctx.betterSidebar.registerTab` 注册表，不会枚举宿主的右侧栏类型，所以「提交 / 历史 / 控制台」要再递给它一次。注册走 `ctx.get('betterSidebar')` 的软查询——服务名不进 `dsh.client.inject`，装了才注册，没装什么也不做——并带 `bottomOnly: true`：不加这个标记它会为每个注册另铸一个原生右侧栏类型，把上面那三个顶掉。它的页签组件只拿到 `{ sessionId, cwd }` 作用域而不是宿主的 store hook，而 `ctx.sessions` 是未声明就读取直接抛错的服务，所以仓库目录取自作用域本身。
+**Coexisting with dsh-better-sidebar**: that plugin has its own bottom workbench, and its tabs come only from its own `ctx.betterSidebar.registerTab` registry — it does not enumerate the host's right-sidebar kinds, so "Commit / History / Console" have to be handed to it a second time. Registration uses a soft `ctx.get('betterSidebar')` lookup — the service name stays out of `dsh.client.inject`, we register only when it is installed, and do nothing when it is not — and passes `bottomOnly: true`: without that flag it mints a native right-sidebar kind for every registration and displaces the three above. Its tab component receives only a `{ sessionId, cwd }` scope instead of the host's store hooks, and `ctx.sessions` is a service that throws when read without being declared, so the repository directory comes from the scope itself.
 
-**为什么差异不用资源（`dsh-resource://`）类型**：资源类型会按地址生成 contentId，等于每个文件一个 tab；我们要的恰恰是同一个 contentId。页面类型 + params 才是对的。
+**Why the diff is not a resource (`dsh-resource://`) kind**: a resource kind derives its contentId from the address, which means one tab per file; what we want is precisely one shared contentId. A page kind with params is the right shape.
 
-**把 diff 放主区域的代价**：DSH 的全局面板是独占的，`selectPanel` 生效后会话与右侧栏一起卸载，所以拿不到"编辑器 + 工具窗口并排"的完整版式。补偿手段放在 diff 自己的头部——`3 / 5` 打开当前文件集的完整列表、`‹ ›` / `Alt+↑/↓` 切文件、`F7` 切块、`Esc` / ✕ 回会话。接口层只依赖 `openDiff` 一处，宿主将来支持分栏时替换成本很低。
+**The cost of putting the diff in the main area**: DSH's global panel is exclusive — once `selectPanel` takes effect, the conversation and the right sidebar unmount together, so the full "editor + tool window side by side" layout is out of reach. The compensation lives in the diff's own header: `3 / 5` opens the full list of the current file set, `‹ ›` / `Alt+↑/↓` switch files, `F7` switches hunks, `Esc` / ✕ returns to the conversation. The interface layer depends on `openDiff` in one place only, so if the host grows a split view one day, replacing it is cheap.
 
-## DSH 里所有能看 diff 的位置
+## Every place in DSH that shows a diff
 
-DSH Web 一共四个位置会呈现代码改动，它们是不同的 surface，不是一个组件：
+DSH Web renders code changes in four places. They are distinct surfaces, not one component:
 
-| # | 位置 | 数据来源 | 我们的接入 |
+| # | Place | Data source | How we plug in |
 |---|---|---|---|
-| 1 | 聊天里的 `edit` / `write` 工具卡片（每次改动的内联 diff） | 工具调用参数 | **未替换**，见下 |
-| 2 | 聊天里一轮结束的产出口卡片 | `present` 工具 + 文件 | `deliverables.file.actions` → `Git` 按钮，打开中间会话区的「差异」页签（见下） |
-| 3 | 右侧栏「改动」评审页（逐文件列表） | `workspace/changes` | `deliverables.review.file.actions` → 同上的 `Git` 按钮 |
-| 4 | 右侧栏「文件」页 | 工作区目录 | `sidebar.right.tab.files.actions` → 打开「提交」页签 |
+| 1 | The `edit` / `write` tool cards in chat (an inline diff per change) | Tool call arguments | **Not replaced**, see below |
+| 2 | The deliverables card at the end of a turn | The `present` tool + files | `deliverables.file.actions` → the `Git` button, which opens the "Diff" tab in the middle conversation area (see below) |
+| 3 | The right sidebar's "Changes" review page (file-by-file) | `workspace/changes` | `deliverables.review.file.actions` → the same `Git` button |
+| 4 | The right sidebar's "Files" page | The workspace directory | `sidebar.right.tab.files.actions` → opens the "Commit" tab |
 
-**第 2、3 处的 `seq` 不是同一套编号**。宿主把会话事件按追加顺序统一编号，`ctx.workspaceChanges.summary(sessionId, seq)` 只认 `workspace/changes` 那一条事件；而交付卡片传给动作位的 `seq` 属于 `deliverables/presented` 事件。插件在服务端读会话日志把两者接上：用 `sessions` 服务拿到这一序号的交付事件，取它的 `turn`，再找同一轮最新的一条 `workspace/changes`，用那条的序号去要快照。`index` 也要翻译——卡片的序号数的是它自己的文件列表，快照数的是这一轮的文件列表，所以按交付事件里的 `path` 回到快照中同路径的文件。接不上时（快照只跟着**当前进程里打开的会话**存在，会话被释放或宿主重启后就没了）`/turn` 会抛出说明，diff 页把它翻译成人话并给出「在提交页查看工作区改动」的出口，而不是一句英文错误。
+**The `seq` in places 2 and 3 is not the same numbering.** The host numbers session events uniformly in append order, and `ctx.workspaceChanges.summary(sessionId, seq)` understands only the `workspace/changes` event; the `seq` handed to the action slots by the deliverables card belongs to the `deliverables/presented` event. The plugin bridges the two server-side by reading the session log: take the `sessions` service, find the delivery event with that sequence number, read its `turn`, then find the newest `workspace/changes` event in the same turn and ask for the snapshot with that event's sequence number. `index` needs translating too — the card's index counts its own file list, the snapshot counts the turn's file list — so the delivery event's `path` maps back to the file with the same path in the snapshot. When the two cannot be bridged (a snapshot lives only for as long as **the session is open in the current process**, and is gone once the session is released or the host restarts), `/turn` raises an explained error, and the diff view turns it into plain language with an exit to "view the worktree changes in the Commit tab", instead of one English error line.
 
-聊天里那张「已编辑 N 个文件」的改动卡片**没有第三方动作位**——宿主只给了它自己的「在侧边栏查看本轮改动」按钮，点进去才是第 3 行的评审页，`Git` 按钮在那里。
+The "Edited N files" change card in chat **has no third-party action slot** — the host gives it only its own "View this turn's changes in the sidebar" button, which is what leads to the review page in row 3, where the `Git` button lives.
 
-另有会话头部的分支芯片（`conversation.session.header.actions`）和新会话空状态的分支选择器（`conversation.hero.options`），它们是 Git 操作入口，不是 diff surface。
+The session-header branch chip (`conversation.session.header.actions`) and the new-session empty-state branch picker (`conversation.hero.options`) are Git entry points, not diff surfaces.
 
-**为什么第 1 处不替换**：`tool.call.toolview` 是**按 key 替换**的槽位——注册 `key: "edit"` 会把官方那张内联 diff 卡片整张顶掉，包括它的折叠、行统计、可点击打开文件等行为。为了加一个按钮而重写这张卡片，收益不抵风险；而且这两张卡片没有声明任何子动作位，也无法"在旁边加"。
+**Why place 1 is not replaced**: `tool.call.toolview` is a slot that **replaces by key** — registering `key: "edit"` displaces the official inline diff card wholesale, including its folding, line counts and click-to-open behaviour. Rewriting that card to add one button costs more than it buys, and neither card declares any child action slot, so "adding one alongside" is not possible either.
 
-替代路径：每次 `edit` / `write` 都属于某一轮，第 2、3 处的入口已经覆盖"这一轮到底改了什么"。真要给工具卡片加按钮只能走 DOM 注入（`webserver/index-inject` + MutationObserver），代价是宿主改版就会失效。
+The alternative path: every `edit` / `write` belongs to a turn, and the entry points in places 2 and 3 already cover "what did this turn actually change". Adding a button to the tool cards would take DOM injection (`webserver/index-inject` + MutationObserver), and it would break on the next host redesign.
 
-## 状态同步
+## State synchronization
 
-- **轮询**：5 秒一次 `/status`，用 `JSON.stringify(files)+branch+ahead+behind` 做指纹，没变就完全不重渲染（diff 正在被阅读时不会闪）。
-- **选中即冻结**：用户已经开始逐行勾选时暂停轮询，否则一次刷新会把选择清空。
-- **写入后全量刷新**：暂存 / 提交后不猜结果，直接重取 status 与当前文件 diff。git 的 index 状态没有便宜的增量接口，猜错一次比多一次请求贵得多。
-- **写操作串行**：`GitService.withWriteLock` 把写操作排在一条 Promise 链上。
-- **SSE**：`/events` 在仓库变化时推新的 `rev`，客户端据此决定是否重新拉取，避免空转。
+- **Polling**: `/status` every 5 seconds, fingerprinted with `JSON.stringify(files)+branch+ahead+behind`; an unchanged fingerprint re-renders nothing (a diff being read does not flicker).
+- **Selection freezes polling**: once the user starts ticking lines, polling pauses, otherwise one refresh would clear the selection.
+- **Full refresh after a write**: no guessing after stage / commit — re-fetch status and the current file's diff. git's index has no cheap incremental interface, and one wrong guess costs far more than one extra request.
+- **Writes are serialized**: `GitService.withWriteLock` queues writes on a single promise chain.
+- **SSE**: `/events` pushes the new `rev` when the repository changes, and the client decides from it whether to re-fetch, so nothing spins.
 
-## 提交以 index 为准
+## Commits follow the index
 
-勾选框只是"暂存 / 取消暂存"的快捷方式；提交永远提交暂存区，不会把未暂存的部分顺手带进去。逐 Hunk / 逐行走的是同一条路：从结构化 diff 取出选区 → 裁剪成合法 patch（补上正确的 hunk 头与计数，`--recount` 兜底）→ `git apply --cached`。反向（取消暂存）用 `git apply --cached --reverse`，行级取消同样精确。
+A checkbox is only a shortcut for "stage / unstage"; a commit always commits the index and never sweeps the unstaged part along. Hunk and line staging take the same road: pull the selection out of the structured diff → trim it into a valid patch (correct hunk headers and counts, with `--recount` as a safety net) → `git apply --cached`. The reverse (unstage) is `git apply --cached --reverse`, and line-level unstaging is just as exact.
 
-变更列表的"只提交此列表"用临时 index：以 HEAD 为底，只保留目标列表的条目，提交后刷新真实 index——别的列表的暂存内容原样留在暂存区。部分储藏用同样的技巧，避免 `git stash push -- <paths>` 把整个 index 卷进储藏的第二个父提交。
+A changelist's "commit this list" uses a temporary index: based on HEAD, keep only that list's entries, commit, then refresh the real index — the other lists' staged content stays in the index untouched. Partial stash uses the same trick, avoiding `git stash push -- <paths>` dragging the whole index into the stash's second parent.
 
-## 多语言
+## Localization
 
-界面语言跟随 DSH 的语言偏好（设置 → 通用），没有偏好时回退浏览器语言；提交信息语言跟随同一判定（可用 `commitLanguage` 固定）。
+The interface language follows DSH's language preference (Settings → General), falling back to the browser language when unset; the commit-message language follows the same decision (and can be pinned with `commitLanguage`).
 
-- 词条在 `src/client/client.i18n.js` 的 `STRINGS` 表里（语义化 key，两侧 key 必须一致，缺失回退中文、再回退键名），不会白屏。
-- client apply 把词典注册进 DSH 的 locale registry（命名空间 `gitWorkbench`），并订阅 `ctx.locale` 的活动语言：宿主切换语言时，面板内容实时重渲染，不需要重启或重新装插件。唯一例外是右侧边栏的标签页标题——宿主在创建标签页时留存标题文字（DSH 自带的「开始」标签页也一样），已打开的标签页会保持旧语言，关掉重开或重启后更新。`locale/<lang>.json` 仍只放插件元数据（`meta.title` / `meta.description`），那是插件管理器的约定，DSH 不从那里读运行时文案。
-- 覆盖全部按钮、标签页、空状态、提示、错误、右键/弹层菜单、轮次快照、提交面板、冲突解决、设置。
-- 不覆盖 git 自己的输出（路径、分支名、提交信息）和给模型用的工具描述（保持英文）。
-- git 的拒绝经 `localizeError` 映射（`a branch named … already exists`、`nothing to commit`、非快进推送、`CONFLICT (` 等），并剥掉 `fatal:` / `error:` 前缀和 `hint:` 样板——中文界面里不出现原始英文报错墙。
+- The strings live in the `STRINGS` table in `src/client/client.i18n.js` (semantic keys, the two sides must carry the same set, a missing entry falls back to Chinese and then to the key), so nothing ever renders blank.
+- The client apply registers the dictionaries into DSH's locale registry (namespace `gitWorkbench`) and subscribes to `ctx.locale`'s active language: switching the language in the host re-renders the panel live, with no restart or reinstall. The one exception is the right sidebar's tab titles — the host keeps the title text from when the tab was created (DSH's own "Start" tab behaves the same way), so an open tab keeps the old language until it is closed and reopened or the host restarts. `locale/<lang>.json` still holds only the plugin metadata (`meta.title` / `meta.description`), which is the plugin-manager convention; DSH does not read runtime copy from there.
+- It covers every button, tab, empty state, hint, error, context/popover menu, turn snapshot, commit panel, conflict resolution and settings.
+- It does not cover git's own output (paths, branch names, commit messages) or the tool descriptions handed to the model (those stay English).
+- git's refusals are mapped in `localizeError` (`a branch named … already exists`, `nothing to commit`, non-fast-forward pushes, `CONFLICT (` …), stripping the `fatal:` / `error:` prefixes and the `hint:` boilerplate — a Chinese interface never shows a wall of raw English errors.
 
-## 样式与设计 token
+## Styling and design tokens
 
-样式是一次注入的 `<style>`，全部选择器收在 `.gwb` 作用域内；颜色只取宿主的 `--dsw-alias-*` token，因此明暗主题、宿主的品牌色变化都会自动跟随。
+The stylesheet is a single injected `<style>`, every selector scoped under `.gwb`; colors come only from the host's `--dsw-alias-*` tokens, so light/dark and the host's brand colors all follow automatically.
 
-几条自我约束（新增 UI 时请遵守）：
+A few self-imposed rules (follow them when adding UI):
 
-- **色相可以作面，不能作小字**。文字用 `--gwb-*-ink`（向正文色混合过的墨色），彩色底上的文字用 `--gwb-on-hue`，不写死 `#fff`。
-- **菜单图标单色、同尺寸**；破坏性行只用红色文字标记，不用彩色图标。
-- **按钮要看得出来是按钮**：工具条上的次要控件带边框，行内动作是蓝色文字链接，只读读数保持中性灰。
-- **破坏性操作的按钮写明动词并染红，焦点默认在「取消」**。
-- 字号阶梯 10.5 / 11 / 12 / 13，不用半像素以外的碎值。
+- **A hue may be a surface, never small text.** Text uses `--gwb-*-ink` (an ink color mixed toward the body text color); text on a colored surface uses `--gwb-on-hue`, never a hard-coded `#fff`.
+- **Menu icons are monochrome and the same size**; a destructive row is marked by red text only, not by a colored icon.
+- **A button has to look like a button**: secondary controls in a toolbar carry a border, in-row actions are blue text links, read-only numbers stay neutral gray.
+- **A destructive button names its verb and is red, with focus parked on "Cancel".**
+- The type scale is 10.5 / 11 / 12 / 13 — no odd fractional values.
 
-## 安全模型
+## Security model
 
-这是能在真实仓库上放心用的前提：
+This is the precondition for using it on real repositories:
 
-- **没有 shell**：每次调用都是 `spawn('git', argv)`，路径里的 `"`、`$(...)`、`%PATH%`、换行都只是普通字符。
-- **固定输出格式**：`--no-pager`、`core.quotepath=false`、`color.ui=false`、`LC_ALL=C`，用户的 pager / 别名 / 颜色配置不会改变解析结果。
-- **读取与写入分离**：写操作全部经过 `withWriteLock`，同一时刻只有一个 index 变更。
-- **路径与版本号校验**：拒绝 `..` 逃逸、拒绝以 `-` 开头的参数注入、commit/ref 只接受合法 revision；远程名、分支名、上游名、脚本名各有白名单。
-- **CSRF 拒绝**：`Origin` 与 `Host` 不匹配的请求一律 403。
-- **前缀下只有 API**：`/dsh-git/` 不映射任何静态目录；请求体上限 2 MB，读请求按 revision 记忆化。
-- **只读开关**：`readOnly: true` 时除 `/config` 外的所有 POST 返回 403，面板同时不渲染写入入口。
-- **不收集凭据**：网络操作禁用终端凭据交互（`GIT_TERMINAL_PROMPT=0`）并设 120 s 超时，失败时把 git 的输出交回来，绝不挂起等待输入。
-- **不执行用户输入**：模型工具与 HTTP 接口都不接受命令字符串；提交前检查只认 `package.json` 里已存在的脚本名。
+- **No shell**: every call is `spawn('git', argv)`, so `"`, `$(...)`, `%PATH%` and newlines in a path are just ordinary characters.
+- **Fixed output formats**: `--no-pager`, `core.quotepath=false`, `color.ui=false`, `LC_ALL=C` — the user's pager, aliases and color configuration cannot change what we parse.
+- **Reads and writes separated**: every write goes through `withWriteLock`, so only one index change happens at a time.
+- **Path and revision validation**: `..` escapes are rejected, arguments starting with `-` are rejected as injection, commit/ref only accepts a valid revision; remote names, branch names, upstream names and script names each have their own allow list.
+- **CSRF rejection**: a request whose `Origin` does not match `Host` gets a 403.
+- **Only the API under the prefix**: `/dsh-git/` maps no static directory; request bodies cap at 2 MB, and read requests are memoized by revision.
+- **Read-only switch**: under `readOnly: true` every POST except `/config` returns 403, and the panel does not render write entry points either.
+- **No credentials collected**: network operations disable terminal credential prompts (`GIT_TERMINAL_PROMPT=0`) and set a 120 s timeout; on failure git's output is handed back, and it never hangs waiting for input.
+- **No user input executed**: neither the model tools nor the HTTP endpoints accept a command string; the pre-commit checks only accept script names that already exist in `package.json`.
