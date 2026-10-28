@@ -9,7 +9,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
-    const { Api, baseName, collectPaths, compareStore, config, countFiles, fileHistoryStore, listModeStore, LOG_KIND, logColumnsStore, logGroupStore, logSortStore, logWidthStore, LOG_WIDTH_DEFAULTS, LOG_WIDTH_KEYS, LOG_WIDTH_LIMITS, useCompact, useCompare, useFileHistory, useListMode, useLogColumns, useLogGroup, useLogSort, useLogWidthLead, useLogWidths, openDiff, openTab, preloadedCommits, runNetOp, statusColor, switchBranch, useRepoChanges, useSessionDirectory, walkFileTree } = kit
+    const { Api, baseName, collectPaths, compareStore, config, countFiles, fileHistoryStore, listModeStore, LOG_KIND, logColumnsStore, logGroupStore, logSortStore, logWidthStore, LOG_WIDTH_DEFAULTS, LOG_WIDTH_KEYS, LOG_WIDTH_LIMITS, useCompact, useCompare, useFileHistory, useListMode, useLogColumns, useLogGroup, useLogSort, useLogWidthLead, useLogWidths, openDiff, openTab, runNetOp, statusColor, switchBranch, useRepoChanges, useSessionDirectory, walkFileTree } = kit
     const { Badge, FilePath, FolderIcon, GitIcons, IconBtn, Menu, MenuRow, askIdentity, copyText, iconMarkup, missingIdentity, openContextMenu, openNamePrompt, reportError, showCheckFailure, showConfirm, showRebaseDialog, showRewordDialog, showToast, withIdentity } = require('@yann9/dsh-git-workbench/client.ui.js')
     const { GitOperationsMenu, sessionBranchName, busyLabel } = require('@yann9/dsh-git-workbench/client.shell.js')
     const { isZh, localizeError, tt } = require('@yann9/dsh-git-workbench/client.i18n.js')
@@ -2210,6 +2210,9 @@ window.__ModuleLoader__.load({
       const pair = useCompare()
       const [compare, setCompare] = useState(null)
       const compareSeq = useRef(0)
+      // Detail fetches race the same way the list does: the commit picked last
+      // must win, not the one whose diff happened to arrive last.
+      const detailSeq = useRef(0)
       const [branchList, setBranchList] = useState({ local: [], remote: [], tags: [] })
   const rootRef = useRef(null)
   // The log stacks list-over-detail as soon as the two columns would each be
@@ -2371,6 +2374,7 @@ window.__ModuleLoader__.load({
         showToast(tt('readonly.blocked'), true)
         return
       }
+      if (!(await confirmDirtySwitch(tt('confirm.switch')))) return
       try {
         await Api.checkout(dir, { branch: name, create: true, from: sha })
         showToast(tt('toast.created', { branch: name }))
@@ -2385,16 +2389,17 @@ window.__ModuleLoader__.load({
   const openCommit = useCallback(
         async (hash) => {
           if (!hash) return
+          const seq = ++detailSeq.current
           setActive(hash)
           setDetailBusy(true)
           try {
             const loaded = await Api.showCommit(dir, hash)
-            preloadedCommits.set(hash, loaded)
+            if (seq !== detailSeq.current) return
             setCommit(loaded)
           } catch (cause) {
-            reportError(cause)
+            if (seq === detailSeq.current) reportError(cause)
           } finally {
-            setDetailBusy(false)
+            if (seq === detailSeq.current) setDetailBusy(false)
           }
         },
         [dir],

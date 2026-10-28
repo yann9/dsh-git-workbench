@@ -242,7 +242,7 @@ window.__ModuleLoader__.load({
           showToast(tt('net.busyToast'), true)
           return
         }
-        if (!create && !(await confirmDirtySwitch(tt('confirm.switch')))) return
+        if (!(await confirmDirtySwitch(tt('confirm.switch')))) return
         // A checkout rewrites the whole worktree, which is slow enough that the
         // trigger has to say so — this is the same op run('switchTo') covers.
         setBusy('switchTo')

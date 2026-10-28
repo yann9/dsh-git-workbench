@@ -123,6 +123,19 @@ window.__ModuleLoader__.load({
         ensureChangeFeed(dir)
         return () => {
           changeListeners.delete(listener)
+          // Nothing is listening any more: stop the stream and the poll instead
+          // of asking /rev every 3 seconds for the rest of the page's life.
+          if (changeListeners.size === 0) {
+            try {
+              changeFeed.eventSource?.close()
+            } catch {
+              /* ignore */
+            }
+            window.clearInterval(changeFeed.pollTimer)
+            changeFeed.dir = ''
+            changeFeed.eventSource = null
+            changeFeed.pollTimer = 0
+          }
         }
       }, [dir])
     }
@@ -894,14 +907,6 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /**
-     * Commit payloads already fetched by the Log pane, keyed by sha. Clicking
-     * a file in the commit detail must not re-download the whole commit diff —
-     * only fall back to the network when the payload is not around.
-     * @type {Map<string, any>}
-     */
-    const preloadedCommits = new Map()
-
     function openDiff(ctx, target) {
       ensureDiffView(ctx)
       diffTargetStore.set(target)
@@ -1108,7 +1113,6 @@ window.__ModuleLoader__.load({
       useCompare,
       compareStore,
       diffTargetStore,
-      preloadedCommits,
       DiffViewHost,
       ensureDiffView,
       closeDiffView,

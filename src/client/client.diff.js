@@ -9,7 +9,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
-    const { Api, COMMIT_KIND, closeDiffView, config, diffTargetStore, openDiff, openTab, preloadedCommits, statusColor, useRepoChanges, useSessionDirectory } = kit
+    const { Api, COMMIT_KIND, closeDiffView, config, diffTargetStore, openDiff, openTab, statusColor, useRepoChanges, useSessionDirectory } = kit
     const { Badge, GitIcons, IconBtn, Menu, MenuRow, Safe, copyText, iconMarkup, openContextMenu, reportError, showConfirm, showToast } = require('@yann9/dsh-git-workbench/client.ui.js')
     const { tt, localizeError } = require('@yann9/dsh-git-workbench/client.i18n.js')
 
@@ -817,11 +817,9 @@ window.__ModuleLoader__.load({
           resetScroll()
           try {
             if (isRev) {
-              const cached = ignoreWhitespace ? null : preloadedCommits.get(target.sha)
               const loaded = source === 'stash'
                 ? await Api.stashShow(dir, target.ref, ignoreWhitespace)
-                : cached ?? (await Api.showCommit(dir, target.sha, ignoreWhitespace))
-              if (source === 'commit' && !ignoreWhitespace) preloadedCommits.set(target.sha, loaded)
+                : await Api.showCommit(dir, target.sha, ignoreWhitespace)
               if (!alive) return
               setCommit(loaded)
               setEntries(loaded.files.map((file) => ({ path: file.path, diff: file })))
