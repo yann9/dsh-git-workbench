@@ -519,6 +519,9 @@ async function handleApi(req, res, route, url, service, options) {
     case '/delete-branch':
       sendJson(res, 200, await service.deleteBranch({ dir, branch: body.branch, force: body.force }))
       return
+    case '/delete-remote-branch':
+      sendJson(res, 200, await service.deleteRemoteBranch({ dir, remote: body.remote, branch: body.branch }))
+      return
     case '/rename-branch':
       sendJson(res, 200, await service.renameBranch({ dir, branch: body.branch, name: body.name }))
       return

@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The branch popover's remote rows carry their own actions: create a local
+  branch from one — it starts out tracking the remote branch, whatever
+  `branch.autoSetupMerge` says — and delete the branch on the remote.
+  Deleting asks first and names the branch, and a default branch is refused
+  host-side.
+- Deleting a local branch can take its remote branch with it: when the branch
+  tracks a remote branch that is still listed, the confirm offers an unchecked
+  "also delete the remote branch" box. The local branch goes first, so a
+  failed `git push --delete` is reported without pretending the whole action
+  did nothing.
 - Every document has an English edition beside its Chinese one: README,
   CONTRIBUTING, SECURITY and the five manuals. A page that exists in one
   language only sends the other reader to text they cannot read, so the

@@ -753,3 +753,67 @@ test('a branch named in Chinese is a branch, not a rejected character', async ()
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+/** A working repository with one bare remote, a pushed `main` and `feature`. */
+async function makeRepoWithRemote() {
+  const dir = await makeRepo('remote-branch')
+  const bare = await mkdtemp(path.join(tmpdir(), 'dsh-git-remote-'))
+  gitSync(bare, ['init', '-q', '--bare'])
+  await writeFile(path.join(dir, 'a.txt'), 'a\n')
+  commitAll(dir, 'init')
+  gitSync(dir, ['remote', 'add', 'origin', bare])
+  gitSync(dir, ['push', '-q', 'origin', 'main'])
+  gitSync(dir, ['switch', '-q', '-c', 'feature'])
+  await writeFile(path.join(dir, 'b.txt'), 'feature\n')
+  commitAll(dir, 'feature work')
+  gitSync(dir, ['push', '-q', 'origin', 'feature'])
+  gitSync(dir, ['switch', '-q', 'main'])
+  return { dir, bare }
+}
+
+test('a branch created from a remote-tracking branch tracks it', async () => {
+  const { dir, bare } = await makeRepoWithRemote()
+  try {
+    const service = new GitService({ defaultDir: dir })
+    const remoteHead = gitSync(dir, ['rev-parse', 'origin/feature']).trim()
+
+    await service.checkout({ dir, branch: 'review', create: true, from: 'origin/feature' })
+
+    assert.equal(gitSync(dir, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(), 'review')
+    assert.equal(gitSync(dir, ['rev-parse', '--abbrev-ref', 'review@{upstream}']).trim(), 'origin/feature')
+    assert.equal(gitSync(dir, ['rev-parse', 'review']).trim(), remoteHead)
+    const listed = await service.branches(dir)
+    assert.equal(listed.local.find((entry) => entry.name === 'review')?.upstream, 'origin/feature')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+    await rm(bare, { recursive: true, force: true })
+  }
+})
+
+test('a branch can be deleted on the remote, but not the default one', async () => {
+  const { dir, bare } = await makeRepoWithRemote()
+  try {
+    const service = new GitService({ defaultDir: dir })
+    assert.ok((await service.branches(dir)).remote.some((entry) => entry.name === 'origin/feature'))
+
+    await service.deleteRemoteBranch({ dir, remote: 'origin', branch: 'feature' })
+
+    assert.equal(gitSync(bare, ['branch', '--list', 'feature']).trim(), '')
+    // The push also drops the tracking ref, so the branch list settles without a fetch.
+    assert.equal((await service.branches(dir)).remote.some((entry) => entry.name === 'origin/feature'), false)
+
+    // Deleting `main` on the remote is never the way to finish a feature branch.
+    for (const branch of ['main', 'master', 'HEAD']) {
+      await assert.rejects(
+        () => service.deleteRemoteBranch({ dir, remote: 'origin', branch }),
+        /refusing to delete the default branch/,
+        `${branch} must stay refused`,
+      )
+    }
+    await assert.rejects(() => service.deleteRemoteBranch({ dir, remote: '--force', branch: 'feature' }), /invalid remote name/)
+    await assert.rejects(() => service.deleteRemoteBranch({ dir, remote: 'origin', branch: 'a..b' }), /invalid branch name/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+    await rm(bare, { recursive: true, force: true })
+  }
+})

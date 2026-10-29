@@ -294,15 +294,19 @@ window.__ModuleLoader__.load({
      * over the app with no visual anchor. Resolves true on the confirm button,
      * false on cancel/Escape/backdrop click.
      * @param {string} message
-     * @param {{ ok?: string, danger?: boolean }} [options] `ok` names the verb
+     * @param {{ ok?: string, danger?: boolean, checkbox?: { label: string, checked?: boolean } }} [options] `ok` names the verb
      *   the user is agreeing to ("丢弃改动" beats "确定"); `danger` marks an
      *   irreversible one, which gets the error colour and keeps focus on 取消
-     *   so Enter can never fire it by reflex.
-     * @returns {Promise<boolean>}
+     *   so Enter can never fire it by reflex. `checkbox` adds one optional
+     *   extra decision under the message and makes the promise resolve
+     *   `{ ok, checked }` instead of a boolean — the cancel path included, so
+     *   a caller that forgot to read `ok` cannot act on a dismissed dialog.
+     * @returns {Promise<boolean | { ok: boolean, checked: boolean }>}
      */
     function showConfirm(message, options = {}) {
       const okLabel = String(options.ok ?? '').trim() || tt('confirm.ok')
       const danger = options.danger === true
+      const choice = options.checkbox && typeof options.checkbox.label === 'string' ? options.checkbox : null
       return new Promise((resolve) => {
         const backdrop = document.createElement('div')
         backdrop.className = 'gwb-confirm-backdrop'
@@ -324,13 +328,26 @@ window.__ModuleLoader__.load({
         ok.className = `gwb-btn ${danger ? 'danger' : 'primary'}`
         ok.textContent = okLabel
         row.append(cancel, ok)
-        overlay.append(msg, row)
+        overlay.append(msg)
+        let box = null
+        if (choice) {
+          const label = document.createElement('label')
+          label.className = 'gwb-confirm-option'
+          box = document.createElement('input')
+          box.type = 'checkbox'
+          box.checked = choice.checked === true
+          const text = document.createElement('span')
+          text.textContent = choice.label
+          label.append(box, text)
+          overlay.append(label)
+        }
+        overlay.append(row)
         backdrop.appendChild(overlay)
         document.body.appendChild(backdrop)
         const settle = (value) => {
           backdrop.remove()
           document.removeEventListener('keydown', onKey, true)
-          resolve(value)
+          resolve(choice ? { ok: value, checked: box.checked } : value)
         }
         const onKey = (event) => {
           if (event.key === 'Escape') {

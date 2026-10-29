@@ -385,6 +385,46 @@ test('checkout-commit detaches HEAD, delete-branch guards the default branch', a
   }
 })
 
+test('a local branch can be created from a remote one, and the remote one deleted', async () => {
+  const dir = await makeRepo()
+  const bare = await makeTempDir('dsh-git-remote-')
+  gitSync(bare, ['init', '-q', '--bare'])
+  const { server, base } = await startServer(dir)
+  const post = async (route, body) => {
+    const response = await fetch(`${base}/api${route}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dir, ...body }),
+    })
+    return { status: response.status, payload: await response.json() }
+  }
+  try {
+    gitSync(dir, ['remote', 'add', 'origin', bare])
+    gitSync(dir, ['push', '-q', 'origin', 'main'])
+    gitSync(dir, ['branch', 'feature'])
+    gitSync(dir, ['push', '-q', 'origin', 'feature'])
+
+    // The UI's "create from remote": the new local branch tracks the remote one.
+    const created = await post('/checkout', { branch: 'review', create: true, from: 'origin/feature' })
+    assert.equal(created.status, 200, JSON.stringify(created.payload))
+    assert.equal(gitSync(dir, ['rev-parse', '--abbrev-ref', 'review@{upstream}']).trim(), 'origin/feature')
+
+    const refused = await post('/delete-remote-branch', { remote: 'origin', branch: 'main' })
+    assert.equal(refused.status, 500)
+    assert.match(refused.payload.error, /refusing to delete the default branch/)
+
+    const deleted = await post('/delete-remote-branch', { remote: 'origin', branch: 'feature' })
+    assert.equal(deleted.status, 200, JSON.stringify(deleted.payload))
+    assert.equal(gitMaybe(bare, ['branch', '--list', 'feature']), '')
+    const branches = await (await fetch(`${base}/api/branches?dir=${encodeURIComponent(dir)}`)).json()
+    assert.ok(!branches.remote.some((branch) => branch.name === 'origin/feature'))
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    await rm(dir, { recursive: true, force: true })
+    await rm(bare, { recursive: true, force: true })
+  }
+})
+
 test('a paused operation is reported and can be aborted; untracked paths can be ignored', async () => {
   const dir = await makeRepo()
   const { server, base } = await startServer(dir)

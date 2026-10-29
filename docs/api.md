@@ -69,6 +69,7 @@ GET  /dsh-git/api/status?dir=<abs-path>
 | POST | `/checkout` | `{branch, create, from}`; a remote branch gets a tracking branch automatically |
 | POST | `/checkout-commit` | `{sha}`, detached HEAD |
 | POST | `/delete-branch` | `{branch, force}` |
+| POST | `/delete-remote-branch` | `{remote, branch}`: `git push <remote> --delete <branch>`; the remote name and the branch name are validated separately, and a default branch (main / master / HEAD) is refused. A successful push also drops the local `refs/remotes/…` ref, so the list settles without another fetch |
 | POST | `/stash` | `{action: push\|pop\|apply\|drop, ref}` |
 
 ## Conventions

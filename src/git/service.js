@@ -447,6 +447,24 @@ export class GitService {
   }
 
   /**
+   * Delete a branch on the remote (`git push <remote> --delete <branch>`).
+   * The same push drops the local remote-tracking ref, so the list settles
+   * without a separate prune.
+   * @returns {Promise<{ ok: boolean, output: string }>}
+   */
+  async deleteRemoteBranch(input = {}) {
+    const remote = this.remoteNameToken(input.remote)
+    const branch = assertBranchName(input.branch)
+    if (branch === 'main' || branch === 'master' || branch === 'HEAD') {
+      throw new Error(`refusing to delete the default branch ${branch} on ${remote}`)
+    }
+    return this.withWriteLock(async () => {
+      const root = await this.resolveDir(input.dir)
+      return this.network(root, ['push', remote, '--delete', branch])
+    })
+  }
+
+  /**
    * Rename a local branch. Git only ever moves the local ref, so the answer
    * reports the upstream the renamed branch is still tracking — the remote
    * branch keeps the old name until the user pushes it themselves.
@@ -1236,6 +1254,11 @@ export class GitService {
       }
       if (input.create && input.from) {
         assertRev(input.from)
+        // Creating from a remote-tracking branch is how a local branch starts
+        // tracking it; ask for the upstream explicitly so a user's
+        // `branch.autoSetupMerge` setting cannot quietly leave it orphaned.
+        const tracking = await runGit(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${input.from}`], { allowFailure: true })
+        if (tracking.code === 0) args.push('--track')
         args.push(input.from)
       }
       const result = await runGit(root, args, { allowFailure: true })

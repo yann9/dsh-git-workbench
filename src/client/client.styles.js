@@ -1150,6 +1150,9 @@ window.__ModuleLoader__.load({
 .gwb-confirm .gwb-btn { height: 32px; padding: 0 14px; border-radius: var(--dsw-radius-md, 8px); font-size: 13px; }
 .gwb-confirm .gwb-confirm-msg { margin-bottom: 12px; line-height: 1.5; }
 .gwb-confirm .gwb-confirm-row { display: flex; justify-content: flex-end; gap: 8px; }
+/* An optional second half of the destructive action sits between the question
+   and the buttons, so it reads as part of what is being confirmed. */
+.gwb-confirm .gwb-confirm-option { display: flex; align-items: center; gap: 7px; margin: 0 0 14px; font-size: 12px; color: var(--gwb-dim); cursor: pointer; user-select: none; }
 /* "确定" in the same blue as 保存 for an action that deletes work. The verb
    goes on the button and it takes the error colour; focus stays on 取消. */
 .gwb-confirm .gwb-btn.danger { background: var(--dsw-alias-state-error-primary, #ec1313); color: var(--gwb-on-hue); }
@@ -1175,15 +1178,18 @@ window.__ModuleLoader__.load({
 .gwb-stash-file { display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 6px; border-radius: 4px; cursor: pointer; font-size: 12px; min-width: 0; }
 .gwb-stash-file:hover { background: var(--gwb-hover); }
 .gwb-stash-file input[type="checkbox"],
-.gwb-identity-scope input[type="checkbox"] {
+.gwb-identity-scope input[type="checkbox"],
+.gwb-confirm-option input[type="checkbox"] {
   appearance: none; -webkit-appearance: none; width: 13px; height: 13px; margin: 0; flex: none;
   border: 1.5px solid color-mix(in srgb, var(--gwb-dim) 55%, transparent); border-radius: 3px;
   background: var(--gwb-bg); display: inline-grid; place-content: center; cursor: pointer;
 }
 .gwb-stash-file input[type="checkbox"]:checked,
-.gwb-identity-scope input[type="checkbox"]:checked { background: var(--gwb-accent); border-color: var(--gwb-accent); }
+.gwb-identity-scope input[type="checkbox"]:checked,
+.gwb-confirm-option input[type="checkbox"]:checked { background: var(--gwb-accent); border-color: var(--gwb-accent); }
 .gwb-stash-file input[type="checkbox"]:checked::after,
-.gwb-identity-scope input[type="checkbox"]:checked::after {
+.gwb-identity-scope input[type="checkbox"]:checked::after,
+.gwb-confirm-option input[type="checkbox"]:checked::after {
   content: ''; width: 7px; height: 3.5px; border-left: 1.5px solid #fff; border-bottom: 1.5px solid #fff;
   transform: rotate(-45deg) translateY(-1px);
 }
@@ -1365,14 +1371,18 @@ window.__ModuleLoader__.load({
 .gwb-menu .gwb-menu-row.gwb-noclick:hover { background: none; }
 /* Small glyph controls keep their size but inherit a real hit area. */
 .gwb-fchip-x, .gwb-search-caret, .gwb-menu .gwb-action-caret,
-.gwb-settings input[type="checkbox"], .gwb-stash-file input[type="checkbox"] { position: relative; }
+.gwb-settings input[type="checkbox"], .gwb-stash-file input[type="checkbox"],
+.gwb-confirm-option input[type="checkbox"] { position: relative; }
 .gwb-fchip-x::before, .gwb-search-caret::before, .gwb-menu .gwb-action-caret::before,
-.gwb-settings input[type="checkbox"]::before, .gwb-stash-file input[type="checkbox"]::before {
+.gwb-settings input[type="checkbox"]::before, .gwb-stash-file input[type="checkbox"]::before,
+.gwb-confirm-option input[type="checkbox"]::before {
   content: ''; position: absolute; inset: -4px;
 }
 .gwb-settings input[type="checkbox"] { cursor: pointer; }
-.gwb-settings input[type="checkbox"]:hover, .gwb-stash-file input[type="checkbox"]:hover { border-color: var(--gwb-accent); }
+.gwb-settings input[type="checkbox"]:hover, .gwb-stash-file input[type="checkbox"]:hover,
+.gwb-confirm-option input[type="checkbox"]:hover { border-color: var(--gwb-accent); }
 .gwb-settings input[type="checkbox"]:focus-visible, .gwb-stash-file input[type="checkbox"]:focus-visible,
+.gwb-confirm-option input[type="checkbox"]:focus-visible,
 .gwb-file input[type="checkbox"]:focus-visible, .gwb-check input[type="checkbox"]:focus-visible {
   outline: 2px solid var(--gwb-accent); outline-offset: 1px;
 }

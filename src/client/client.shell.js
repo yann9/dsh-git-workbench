@@ -404,6 +404,15 @@ window.__ModuleLoader__.load({
           },
         ], options)
 
+      // A remote branch is `<remote>/<branch>` and git wants the two halves
+      // separately. A remote name cannot contain a slash, a branch name can,
+      // so the first slash is the split point.
+      const remoteParts = (name) => {
+        const full = String(name ?? '')
+        const slash = full.indexOf('/')
+        return slash > 0 ? { remote: full.slice(0, slash), branch: full.slice(slash + 1) } : { remote: '', branch: full }
+      }
+
       // `git branch -d` 拒绝删除未合并分支；用户确认后再 `-D`。
       const deleteBranchFlow = async (branch) => {
         if (readOnly) {
@@ -411,27 +420,58 @@ window.__ModuleLoader__.load({
           return
         }
         if (busyBlocked()) return
+        // Only offer the remote half while the tracked branch is still listed;
+        // a stale upstream would fail right after the local branch is gone.
+        const upstream =
+          branch.upstream && (state.branches.remote ?? []).some((entry) => entry.name === branch.upstream) ? branch.upstream : ''
         // -d is safe, but it still drops the only name for those commits,
         // so it confirms like every other destructive row does.
-        if (!(await showConfirm(tt('ctx.deleteBranchConfirm', { branch }), { ok: tt('confirm.deleteBranch'), danger: true }))) return
+        const answer = await showConfirm(tt('ctx.deleteBranchConfirm', { branch: branch.name }), {
+          ok: tt('confirm.deleteBranch'),
+          danger: true,
+          checkbox: upstream ? { label: tt('ctx.deleteBranchSyncRemote', { upstream }) } : undefined,
+        })
+        const confirmed = typeof answer === 'boolean' ? answer : answer.ok
+        if (!confirmed) return
         const attempt = async (force) => {
           try {
-            await Api.deleteBranch(dir, branch, force)
-            showToast(tt('toast.branchDeleted', { branch }))
-            await load()
-            if (onDone) onDone()
+            await Api.deleteBranch(dir, branch.name, force)
             return true
           } catch (cause) {
             const message = String(cause?.message ?? cause)
             if (!force && /not fully merged/i.test(message)) {
-              const confirmed = await showConfirm(tt('ctx.forceDelete', { branch }), { ok: tt('confirm.forceDelete'), danger: true })
-              return confirmed ? attempt(true) : false
+              const forceConfirmed = await showConfirm(tt('ctx.forceDelete', { branch: branch.name }), { ok: tt('confirm.forceDelete'), danger: true })
+              return forceConfirmed ? attempt(true) : false
             }
             reportError(cause)
             return false
           }
         }
-        await attempt(false)
+        if (!(await attempt(false))) return
+        let remoteDeleted = false
+        let remoteError = null
+        if (typeof answer === 'object' && answer.checked && upstream) {
+          const parts = remoteParts(upstream)
+          try {
+            await Api.deleteRemoteBranch(dir, parts.remote, parts.branch)
+            remoteDeleted = true
+          } catch (cause) {
+            // The local branch is already gone; report the remote half instead
+            // of pretending the whole action failed.
+            remoteError = cause
+          }
+        }
+        await load()
+        if (onDone) onDone()
+        if (remoteError) {
+          reportError(remoteError)
+          return
+        }
+        showToast(
+          remoteDeleted
+            ? tt('toast.branchAndRemoteDeleted', { branch: branch.name, remote: upstream })
+            : tt('toast.branchDeleted', { branch: branch.name }),
+        )
       }
 
       // JetBrains renames from the branch popup and prefills the old name. The
@@ -601,7 +641,79 @@ window.__ModuleLoader__.load({
                     iconSvg: iconMarkup('close', 13),
                     label: tt('ctx.deleteBranch'),
                     danger: true,
-                    onClick: () => void deleteBranchFlow(branch.name),
+                    onClick: () => void deleteBranchFlow(branch),
+                  },
+                ]),
+          ],
+          options,
+        )
+      }
+
+      // Deleting on the remote cannot be undone from this side: the branch is
+      // gone for everyone, so it confirms like every other destructive row.
+      const deleteRemoteFlow = async (name) => {
+        if (readOnly) {
+          blocked()
+          return
+        }
+        if (busyBlocked()) return
+        const parts = remoteParts(name)
+        if (!parts.remote) return
+        if (!(await showConfirm(tt('ctx.deleteRemoteBranchConfirm', { branch: name }), { ok: tt('confirm.deleteRemoteBranch'), danger: true }))) return
+        try {
+          await Api.deleteRemoteBranch(dir, parts.remote, parts.branch)
+          showToast(tt('toast.remoteBranchDeleted', { branch: name }))
+          await load()
+          if (onDone) onDone()
+        } catch (cause) {
+          reportError(cause)
+        }
+      }
+
+      // Right-click and the row's ⋯ share one list, like local branches: the
+      // two entry points must not offer different actions for the same row.
+      const remoteMenu = (branch, point, options) => {
+        const parts = remoteParts(branch.name)
+        openContextMenu(
+          point.x,
+          point.y,
+          [
+            ...(readOnly
+              ? []
+              : [
+                  { iconSvg: iconMarkup('check', 13), label: tt('ctx.checkout'), onClick: () => void checkout(branch.name, false) },
+                  {
+                    iconSvg: iconMarkup('branch', 13),
+                    label: tt('ctx.newBranchFromRemote'),
+                    onClick: () =>
+                      openNamePrompt(
+                        point.x,
+                        point.y,
+                        tt('ctx.newBranchFromRemoteTitle', { branch: branch.name }),
+                        tt('ctx.branchName'),
+                        (name) => void checkout(name, true, branch.name),
+                        parts.branch,
+                        tt('prompt.create'),
+                      ),
+                  },
+                ]),
+            {
+              iconSvg: iconMarkup('copy', 13),
+              label: tt('ctx.copyName'),
+              onClick: () => {
+                copyText(branch.name)
+                showToast(tt('ctx.copied'))
+              },
+            },
+            ...(readOnly || !parts.remote
+              ? []
+              : [
+                  { sep: true },
+                  {
+                    iconSvg: iconMarkup('close', 13),
+                    label: tt('ctx.deleteRemoteBranch'),
+                    danger: true,
+                    onClick: () => void deleteRemoteFlow(branch.name),
                   },
                 ]),
           ],
@@ -864,10 +976,31 @@ window.__ModuleLoader__.load({
         remoteRows.length > 0 ? h('div', { className: 'gwb-menu-title' }, tt('menu.remotes')) : null,
         remoteRows.slice(0, 6).map((branch) =>
           h(
-            MenuRow,
-            { key: branch.name, onClick: readOnly ? undefined : () => void checkout(branch.name, false) },
+            'div',
+            {
+              key: branch.name,
+              className: `gwb-menu-row gwb-branchrow${readOnly ? ' gwb-noclick' : ''}`,
+              onClick: readOnly ? undefined : () => void checkout(branch.name, false),
+              onContextMenu: (event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                remoteMenu(branch, { x: event.clientX, y: event.clientY })
+              },
+            },
             h('span', { className: 'gwb-rowicon' }, h(GitIcons.remote)),
             h('span', { className: 'gwb-grow', title: branch.name }, branch.name),
+            h('button', {
+              className: 'gwb-rowmore',
+              title: tt('menu.remoteOps'),
+              'aria-label': tt('menu.remoteOps'),
+              'aria-haspopup': 'menu',
+              onClick: (event) => {
+                event.stopPropagation()
+                const rect = event.currentTarget.getBoundingClientRect()
+                remoteMenu(branch, { x: rect.right, y: rect.bottom + 2 }, { align: 'right' })
+              },
+              onDoubleClick: (event) => event.stopPropagation(),
+            }, h(GitIcons.more, { size: 14 })),
           ),
         ),
         // The remote list is not the same thing as the remote repositories:

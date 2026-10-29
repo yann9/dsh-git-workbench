@@ -251,6 +251,7 @@ window.__ModuleLoader__.load({
       },
       checkoutCommit: (dir, sha) => api(dir, '/checkout-commit', { method: 'POST', body: { sha } }),
       deleteBranch: (dir, branch, force = false) => api(dir, '/delete-branch', { method: 'POST', body: { branch, force } }),
+      deleteRemoteBranch: (dir, remote, branch) => api(dir, '/delete-remote-branch', { method: 'POST', body: { remote, branch } }),
       renameBranch: (dir, branch, name) => api(dir, '/rename-branch', { method: 'POST', body: { branch, name } }),
       setUpstream: (dir, branch, upstream) => api(dir, '/set-upstream', { method: 'POST', body: { branch, upstream } }),
       unsetUpstream: (dir, branch) => api(dir, '/unset-upstream', { method: 'POST', body: { branch } }),

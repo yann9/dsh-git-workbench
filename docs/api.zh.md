@@ -69,6 +69,7 @@ GET  /dsh-git/api/status?dir=<abs-path>
 | POST | `/checkout` | `{branch, create, from}`；远程分支自动建跟踪分支 |
 | POST | `/checkout-commit` | `{sha}`，分离 HEAD |
 | POST | `/delete-branch` | `{branch, force}` |
+| POST | `/delete-remote-branch` | `{remote, branch}`：`git push <remote> --delete <branch>`；远程名与分支名分别校验，默认分支（main / master / HEAD）拒绝删除。推送成功后本地的 `refs/remotes/…` 也一并消失，列表不需要再获取一次 |
 | POST | `/stash` | `{action: push\|pop\|apply\|drop, ref}` |
 
 ## 约定
