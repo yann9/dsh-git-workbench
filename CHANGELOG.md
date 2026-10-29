@@ -4,6 +4,46 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.7 — 2026-10-29
+
+### Added
+
+- Every document has an English edition beside its Chinese one: README,
+  CONTRIBUTING, SECURITY and the five manuals. A page that exists in one
+  language only sends the other reader to text they cannot read, so the
+  English manuals are translated section for section rather than summarised,
+  and `test/docs-i18n.test.js` keeps heading levels, fences, tables, every
+  relative link and anchor, and the language of each screenshot in step.
+
+### Changed
+
+- The screenshots follow the documents: the bare file name is the English UI
+  and `<surface>.zh.png` is the Chinese one, in one directory rather than an
+  `en/` and `zh/` split. The marketplace catalog lists bare names, so it now
+  shows the English set it was always meant to show.
+
+### Fixed
+
+- Two quick clicks on commits in the history no longer leave the slower
+  commit's detail on screen: each fetch is stamped and a stale answer is
+  dropped, the way the list already worked.
+- Creating a branch at a commit carried the uncommitted changes through
+  without a word — it ends in a checkout, so it now asks first, the same
+  question a plain branch switch asks.
+- A git command that runs past its timeout is killed together with the
+  processes it spawned (ssh, git-remote-https), so a stalled remote no longer
+  holds the pane open.
+- The read routes validate the revision they are given, so a value like
+  `--output=owned.txt` is refused instead of reaching git as an option.
+- A `.gitignore` line starting with `!` or `#` is escaped when the pane adds
+  it, so asking to ignore a file named `!keep.txt` now does.
+- One workspace whose folder has been deleted no longer fails the whole
+  workspace list.
+- The change feed closes with its last listener instead of asking for the
+  repository revision every three seconds for the rest of the page's life,
+  and the commit detail no longer serves a cached payload that was fetched
+  before the repository changed.
+
 ## 0.1.6 — 2026-10-27
 
 ### Added
