@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.8 — 2026-11-10
+
+### Fixed
+
+- The branch popover on a session's header no longer opens invisibly on DSH
+  0.2.2: the menu is portalled to `document.body` instead of staying inside
+  the slot, whose stacking context painted it under the host's tab bar.
+
 ## 0.1.7 — 2026-10-29
 
 ### Added
