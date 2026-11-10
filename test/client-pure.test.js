@@ -106,12 +106,16 @@ async function loadRegistry(language = 'zh-CN') {
 function makeMaterializer(registered, ReactStub) {
   /** @type {Map<string, any>} */
   const loadCache = new Map()
+  // The host exposes react-dom alongside react; its createPortal is the one
+  // API the chunks use, and in the stub the portal is just the node itself.
+  const ReactDOMStub = { createPortal: (node) => node }
   const materialize = (id) => {
     if (loadCache.has(id)) return loadCache.get(id)
     const registration = registered.get(id)
     if (!registration) throw new Error(`not registered: ${id}`)
     const require_ = (spec) => {
       if (spec === 'react') return ReactStub
+      if (spec === 'react-dom') return ReactDOMStub
       const normalized = spec.endsWith('/client') ? spec.slice(0, -7) : spec
       if (!loadCache.has(normalized) && !registered.has(normalized)) {
         throw new Error(`require("${spec}") missed the module table`)

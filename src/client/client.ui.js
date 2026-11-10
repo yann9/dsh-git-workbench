@@ -7,6 +7,7 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     const React = require('react')
     const h = React.createElement
+    const { createPortal } = require('react-dom')
     const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
     const { Api, service, statusColor } = kit
@@ -1407,7 +1408,10 @@ window.__ModuleLoader__.load({
           // acting on it must not dismiss the popup behind it, so that a new
           // tag or an applied stash stays visible in the list it came from.
           if (event.target?.closest?.('.gwb-ctx')) return
-          if (!ref.current?.contains(event.target)) setOpen(false)
+          // The popup is portalled to body, so it is no longer inside the
+          // anchor; without this its own mousedown counted as an outside click.
+          if (ref.current?.contains(event.target) || popupRef.current?.contains(event.target)) return
+          setOpen(false)
         }
         document.addEventListener('mousedown', onDoc)
         return () => document.removeEventListener('mousedown', onDoc)
@@ -1449,6 +1453,11 @@ window.__ModuleLoader__.load({
       // anchor: a popup that stays in the host's subtree adds scrollable
       // overflow to whichever container wraps it, and the focus() below then
       // scrolls that container — the whole page slid sideways.
+      //
+      // The popup is also portalled to body. The session header in newer DSH
+      // builds wraps the slot in a stacking context, so a z-index high enough
+      // to clear it is unreachable while the popup stays inside: it painted
+      // under the host's tab bar and looked like it never opened at all.
       useEffect(() => {
         if (!open || !popupRef.current || !ref.current) return
         const popup = popupRef.current
@@ -1494,33 +1503,36 @@ window.__ModuleLoader__.load({
             }),
         }, button),
         open &&
-          h(
-            'div',
-            {
-              className: 'gwb-menu',
-              ref: popupRef,
-              role: 'menu',
-              // `width`, not `min-width`: an inline min-width outranks the
-              // stylesheet's max-width and would spill off a narrow viewport.
-              style: width ? { width } : undefined,
-              // Clicking the search field must not dismiss the popup it filters;
-              // checkbox rows opt out via .gwb-menu-stay so several checks can
-              // be picked in one visit.
-              onClick: (event) => {
-                if (event.target?.closest?.('.gwb-menu-search, .gwb-menu-stay, input, textarea')) return
-                setOpen(false)
+          createPortal(
+            h(
+              'div',
+              {
+                className: 'gwb-menu',
+                ref: popupRef,
+                role: 'menu',
+                // `width`, not `min-width`: an inline min-width outranks the
+                // stylesheet's max-width and would spill off a narrow viewport.
+                style: width ? { width } : undefined,
+                // Clicking the search field must not dismiss the popup it filters;
+                // checkbox rows opt out via .gwb-menu-stay so several checks can
+                // be picked in one visit.
+                onClick: (event) => {
+                  if (event.target?.closest?.('.gwb-menu-search, .gwb-menu-stay, input, textarea')) return
+                  setOpen(false)
+                },
+                onKeyDown: (event) => {
+                  if (event.target?.tagName === 'INPUT') return
+                  if (event.key !== 'Enter' && event.key !== ' ') return
+                  const row = event.target.closest?.('[role="menuitem"]')
+                  if (!row) return
+                  event.preventDefault()
+                  row.click()
+                },
               },
-              onKeyDown: (event) => {
-                if (event.target?.tagName === 'INPUT') return
-                if (event.key !== 'Enter' && event.key !== ' ') return
-                const row = event.target.closest?.('[role="menuitem"]')
-                if (!row) return
-                event.preventDefault()
-                row.click()
-              },
-            },
-            title ? h('div', { className: 'gwb-menu-title' }, title) : null,
-            children,
+              title ? h('div', { className: 'gwb-menu-title' }, title) : null,
+              children,
+            ),
+            document.body,
           ),
       )
     }
