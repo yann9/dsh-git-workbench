@@ -522,17 +522,6 @@ window.__ModuleLoader__.load({
       })
     }
 
-    /**
-     * Unchanged-line band between two hunks, like the IDE's `⋮ N 行` separator.
-     * Derived from the hunk headers, so no extra git call is needed.
-     */
-    function hunkGap(previous, hunk) {
-      if (!previous) return null
-      const count = hunk.oldStart - (previous.oldStart + previous.oldLines)
-      if (count <= 0) return null
-      return h('div', { key: `gap${previous.oldStart}`, className: 'gwb-hunkgap' }, `⋮ ${tt('diff.unchanged', { count })}`)
-    }
-
     /** Number of change blocks (not hunks) — the IDE's "N changes" counter. */
     function countChanges(hunks) {
       let total = 0
@@ -547,13 +536,15 @@ window.__ModuleLoader__.load({
     }
 
     /** @returns {import('./types').Element[]} one hunk: header + rows */
-    function hunkBlock(hunk, hunkIndex, options) {
+    function hunkBlock(hunk, hunkIndex, options, hidden = 0) {
       const range = hunk.header.replace(/^@@\s*/, '').replace(/\s*@@.*$/, '')
+      // One thin band per hunk: the skipped-line count, the section and the
+      // hunk action share it, so a hunk boundary is not two rules in a row.
       const header = h(
         'div',
-        { key: `h${hunkIndex}`, className: 'gwb-hunkhead', 'data-hunk': hunkIndex },
+        { key: `h${hunkIndex}`, className: 'gwb-hunkhead', 'data-hunk': hunkIndex, title: range },
         h('span', { className: 'gwb-hunkmark' }, '⋮'),
-        h('span', { className: 'gwb-hunkrange' }, range),
+        hidden > 0 ? h('span', { className: 'gwb-hunkgapcount' }, tt('diff.unchanged', { count: hidden })) : null,
         hunk.section ? h('span', { className: 'gwb-hunksection' }, hunk.section) : null,
         options.hunkAction && !options.readOnly
           ? h('button', { className: 'gwb-btn sm ctl gwb-hunkbtn', onClick: () => options.hunkAction(hunkIndex) }, options.hunkLabel)
@@ -947,13 +938,13 @@ window.__ModuleLoader__.load({
         return state !== 'untracked' && state !== 'deleted' && state !== 'conflicted'
       }
 
-      /** Rows for one section: hunk gaps + hunk blocks, in IDE order. */
+      /** Rows for one section: hunk blocks, in IDE order. */
       function renderHunks(hunks, options) {
         const nodes = []
         hunks.forEach((hunk, hunkIndex) => {
-          const gap = hunkGap(hunks[hunkIndex - 1], hunk)
-          if (gap) nodes.push(gap)
-          nodes.push(...hunkBlock(hunk, hunkIndex, options))
+          const previous = hunks[hunkIndex - 1]
+          const hidden = previous ? hunk.oldStart - (previous.oldStart + previous.oldLines) : 0
+          nodes.push(...hunkBlock(hunk, hunkIndex, options, hidden))
         })
         return nodes
       }

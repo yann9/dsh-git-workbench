@@ -708,14 +708,17 @@ window.__ModuleLoader__.load({
 /* The monospace face belongs to the code in the header, not to the action
    that sits next to it: a control in the code font reads as part of the
    diff, so the font moves to the spans that actually carry code. */
-.gwb-hunkhead { scroll-margin-top: 72px; display: flex; align-items: center; gap: 8px; padding: 1px 10px; background: var(--gwb-panel); border-top: 1px solid var(--gwb-border); border-bottom: 1px solid var(--gwb-border); color: var(--gwb-faint); font-size: 11px; }
+/* A hunk starts with a thin separator, not a table header: the range and the
+   section read as annotations, and the per-hunk action only shows on hover. */
+.gwb-hunkhead { scroll-margin-top: 72px; display: flex; align-items: center; gap: 8px; height: 20px; padding: 0 10px; background: transparent; border-top: 1px solid var(--gwb-border); color: var(--gwb-faint); font-size: 10.5px; }
 .gwb-hunkmark { color: var(--gwb-faint); letter-spacing: -2px; font-family: var(--gwb-mono); }
-.gwb-hunkrange { color: var(--gwb-dim); font-family: var(--gwb-mono); }
+.gwb-hunkgapcount { color: var(--gwb-faint); font-family: var(--gwb-mono); }
 .gwb-hunksection { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gwb-faint); font-family: var(--gwb-mono); }
-.gwb-hunkhead .gwb-hunkbtn { margin-left: auto; flex: none; }
+.gwb-hunkhead .gwb-hunkbtn { margin-left: auto; flex: none; opacity: 0; transition: opacity .12s ease; }
+.gwb-hunkhead:hover .gwb-hunkbtn,
+.gwb-hunkhead .gwb-hunkbtn:focus-visible { opacity: 1; }
 .gwb-hunkhead.gwb-flash { animation: gwb-flash .8s ease-out; }
-@keyframes gwb-flash { 0% { background: var(--gwb-accent-soft); } 100% { background: var(--gwb-panel); } }
-.gwb-hunkgap { display: flex; align-items: center; gap: 6px; padding: 1px 12px; color: var(--gwb-faint); font-size: 10.5px; background: var(--gwb-bg); border-top: 1px dashed var(--gwb-border); border-bottom: 1px dashed var(--gwb-border); }
+@keyframes gwb-flash { 0% { background: var(--gwb-accent-soft); } 100% { background: transparent; } }
 /* Collapsed unchanged run inside a whole-file diff (click to expand). */
 .gwb-foldrow { background: var(--gwb-bg); border-top: 1px dashed var(--gwb-border); border-bottom: 1px dashed var(--gwb-border); }
 .gwb-foldspan { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; padding: 1px 12px; color: var(--gwb-faint); font-size: 10.5px; cursor: pointer; user-select: none; }
@@ -723,7 +726,7 @@ window.__ModuleLoader__.load({
 
 /* Side-by-side version labels, aligned to the row grid below them. */
 .gwb-diffside { display: grid; grid-template-columns: 46px 12px minmax(0,1fr) 18px 46px 12px minmax(0,1fr); align-items: center; height: 18px; background: var(--gwb-panel); border-bottom: 1px solid var(--gwb-border); position: sticky; top: 0; z-index: 5; }
-.gwb-diffside span { padding: 0 10px; font-size: 10.5px; color: var(--gwb-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gwb-diffside span { padding: 0 10px; font-size: 11px; font-family: var(--gwb-mono); color: var(--gwb-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The bridge cell must carry the same verticals as the .gwb-dc.con rows below. */
 .gwb-diffside .gwb-diffside-con { border-left: 1px solid var(--gwb-border); border-right: 1px solid var(--gwb-border); }
 .gwb-diffside .gwb-diffside-right { border-left: 1px solid var(--gwb-border); }
@@ -753,11 +756,10 @@ window.__ModuleLoader__.load({
 .gwb-nowrap .gwb-drow[data-mode="unified"] { grid-template-columns: 46px 46px 12px var(--gwb-uw, max-content); }
 .gwb-nowrap .gwb-hunkhead,
 .gwb-nowrap .gwb-section,
-.gwb-nowrap .gwb-hunkgap,
 .gwb-nowrap .gwb-turnfile .gwb-ovhead { width: var(--gwb-codew, 100%); min-width: 100%; }
 .gwb-dc.code.add { background: var(--gwb-diff-add-bg); }
 .gwb-dc.code.del { background: var(--gwb-diff-del-bg); }
-.gwb-dc.code.pad { background-color: var(--gwb-diff-gap); background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(128,128,128,.06) 6px 7px); }
+.gwb-dc.code.pad { background-color: var(--gwb-diff-gap); }
 
 /* The connector between the two panes: the visual "link" of a change pair. */
 .gwb-dc.con { background: var(--gwb-bg); border-left: 1px solid var(--gwb-border); border-right: 1px solid var(--gwb-border); }

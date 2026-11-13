@@ -647,39 +647,55 @@ window.__ModuleLoader__.load({
 
     function computeGraph(entries) {
       const lanes = []
+      const laneColors = []
       const rows = []
+      let nextColor = 0
       /** Put a hash in `preferred` (or the nearest free lane other than `avoid`). */
-      const claim = (hash, preferred, avoid = -1) => {
-        if (preferred >= 0 && (lanes[preferred] === null || lanes[preferred] === undefined)) {
-          lanes[preferred] = hash
-          return preferred
-        }
-        let lane = lanes.findIndex((value, index) => value === null && index !== avoid)
+      const claim = (hash, preferred, avoid = -1, color) => {
+        let lane = -1
+        if (preferred >= 0 && (lanes[preferred] === null || lanes[preferred] === undefined)) lane = preferred
+        else lane = lanes.findIndex((value, index) => value === null && index !== avoid)
         if (lane === -1) {
           lane = lanes.length
           lanes.push(hash)
         } else {
           lanes[lane] = hash
         }
+        laneColors[lane] = color ?? nextColor++
         return lane
       }
       for (const entry of entries) {
         let lane = lanes.indexOf(entry.hash)
-        if (lane === -1) lane = claim(entry.hash, -1)
+        let color
+        if (lane === -1) {
+          lane = claim(entry.hash, -1)
+          color = laneColors[lane]
+        } else {
+          color = laneColors[lane] ?? nextColor++
+          laneColors[lane] = color
+        }
         const before = lanes.slice()
+        const beforeColors = laneColors.slice()
+        // The upper half of the row: every live lane comes in at the top edge
+        // and ends either at this commit's node or straight down its own lane.
+        const up = []
+        for (let index = 0; index < before.length; index += 1) {
+          if (!before[index]) continue
+          up.push({ from: index, to: before[index] === entry.hash ? lane : index, color: beforeColors[index] ?? 0 })
+        }
+        const starts = []
         // A commit can only end the lanes that actually point at it. Clearing
         // all of them is what keeps a merge from leaving a second copy behind:
         // the old code wrote the first parent into the current lane even when
         // that parent already owned another lane, and the duplicate then ran
         // down the rest of the list.
-        const starts = []
         for (let index = 0; index < lanes.length; index += 1) {
           if (lanes[index] === entry.hash) {
             starts.push(index)
             lanes[index] = null
           }
         }
-        const parents = entry.parents
+        const parents = entry.parents ?? []
         const placed = new Map()
         parents.forEach((parent, index) => {
           if (placed.has(parent)) return
@@ -688,23 +704,37 @@ window.__ModuleLoader__.load({
           // still free; every other parent takes another lane. A parent that
           // already has a lane keeps it, so two lanes can never point at the
           // same commit.
-          if (target === -1) target = claim(parent, index === 0 ? lane : -1, index === 0 ? -1 : lane)
-          placed.set(parent, target)
+          if (target === -1) target = claim(parent, index === 0 ? lane : -1, index === 0 ? -1 : lane, index === 0 ? color : undefined)
+          placed.set(parent, { lane: target, color: laneColors[target] ?? color })
         })
+        const after = lanes.slice()
+        while (after.length > 0 && after[after.length - 1] === null) after.pop()
+        // The lower half: lanes that pass this row untouched run straight down,
+        // then each parent leaves the node as a straight diagonal.
+        const down = []
+        for (let index = 0; index < before.length; index += 1) {
+          if (!before[index] || before[index] === entry.hash) continue
+          down.push({ from: index, to: index, color: beforeColors[index] ?? 0 })
+        }
+        for (const parent of placed.values()) down.push({ from: lane, to: parent.lane, color: parent.color })
         const edges = []
         for (const from of starts) {
           for (const parent of parents) {
-            const to = placed.get(parent)
+            const to = placed.get(parent)?.lane
             if (to === undefined || to === from) continue
             if (!edges.some((edge) => edge.from === from && edge.to === to)) edges.push({ from, to })
           }
         }
-        const after = lanes.slice()
-        while (after.length > 0 && after[after.length - 1] === null) after.pop()
-        rows.push({ lane, before, after, edges })
+        const width = Math.max(
+          2,
+          before.length,
+          after.length,
+          lane + 1,
+          ...up.map((segment) => segment.from + 1),
+          ...down.map((segment) => Math.max(segment.from, segment.to) + 1),
+        )
+        rows.push({ lane, color, before, after, edges, up, down, width })
       }
-      const width = Math.max(2, ...rows.map((row) => Math.max(row.before.length, row.after.length)))
-      for (const row of rows) row.width = width
       return rows
     }
 
@@ -721,32 +751,35 @@ window.__ModuleLoader__.load({
       'color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 55%, var(--dsw-alias-state-warn-primary, #dd8629))',
     ]
 
-    function GraphSvg({ row }) {
-      const step = 12
+    /**
+     * One row of the graph, drawn the way IDEA does it: straight diagonals from
+     * the top edge to the node and from the node to the bottom edge, so lanes
+     * never bow into their neighbours. The checked-out commit is a ring.
+     */
+    function GraphSvg({ row, head = false }) {
+      const step = 14
       const height = 26
-      const x = (lane) => 8 + lane * step
+      const x = (lane) => 7 + lane * step
+      const colorOf = (index) => LANE_COLORS[index % LANE_COLORS.length]
       const children = []
-      for (let lane = 0; lane < row.before.length; lane += 1) {
-        if (row.before[lane] === null) continue
-        const continues = row.after[lane] !== null && row.after[lane] !== undefined
+      for (const segment of row.up ?? []) {
         children.push(
-          h('line', { key: `l${lane}`, x1: x(lane), y1: 0, x2: x(lane), y2: continues ? height : height / 2, stroke: LANE_COLORS[lane % 6], strokeWidth: 1.4, opacity: 0.85 }),
+          h('line', { key: `u${segment.from}-${segment.to}`, x1: x(segment.from), y1: 0, x2: x(segment.to), y2: height / 2, stroke: colorOf(segment.color), strokeWidth: 1.4 }),
         )
       }
-      for (const edge of row.edges) {
+      for (const segment of row.down ?? []) {
         children.push(
-          h('path', {
-            key: `e${edge.from}-${edge.to}`,
-            d: `M${x(edge.from)},${height / 2} C${x(edge.from)},${height} ${x(edge.to)},${height / 2} ${x(edge.to)},${height}`,
-            fill: 'none',
-            stroke: LANE_COLORS[edge.to % 6],
-            strokeWidth: 1.4,
-            opacity: 0.85,
-          }),
+          h('line', { key: `d${segment.from}-${segment.to}`, x1: x(segment.from), y1: height / 2, x2: x(segment.to), y2: height, stroke: colorOf(segment.color), strokeWidth: 1.4 }),
         )
       }
-      children.push(h('circle', { key: 'dot', cx: x(row.lane), cy: height / 2, r: 3.2, fill: LANE_COLORS[row.lane % 6] }))
-      const width = Math.max(row.width * step + 8, 20)
+      const nodeColor = colorOf(row.color)
+      if (head) {
+        children.push(h('circle', { key: 'ring', cx: x(row.lane), cy: height / 2, r: 4.5, fill: 'var(--gwb-bg)', stroke: nodeColor, strokeWidth: 1.5 }))
+        children.push(h('circle', { key: 'hub', cx: x(row.lane), cy: height / 2, r: 2, fill: nodeColor }))
+      } else {
+        children.push(h('circle', { key: 'dot', cx: x(row.lane), cy: height / 2, r: 3.2, fill: nodeColor }))
+      }
+      const width = Math.max(row.width * step, 20)
       return h('svg', { width, height, viewBox: `0 0 ${width} ${height}` }, children)
     }
 
@@ -3456,7 +3489,19 @@ window.__ModuleLoader__.load({
               commitActions(event.clientX, event.clientY, entry)
             },
           },
-          graphOn ? h('span', { className: 'gwb-log-graph' }, h(GraphSvg, { row: rows[index] })) : null,
+          graphOn
+            ? h(
+                'span',
+                { className: 'gwb-log-graph' },
+                h(GraphSvg, {
+                  row: rows[index],
+                  head: (entry.refs ?? []).some((ref) => {
+                    const value = String(ref)
+                    return value === 'HEAD' || value.startsWith('HEAD ->')
+                  }),
+                }),
+              )
+            : null,
           h(
             'span',
             { className: 'gwb-subject' },
