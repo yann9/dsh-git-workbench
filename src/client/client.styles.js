@@ -744,20 +744,17 @@ window.__ModuleLoader__.load({
 .gwb-dc.bar.del:hover { background: linear-gradient(to right, var(--gwb-diff-bar-del) 3px, var(--gwb-hover) 3px); }
 .gwb-dc.bar.pad { background: var(--gwb-diff-gap); }
 .gwb-dc.code { padding: 0 10px; white-space: pre-wrap; overflow-wrap: break-word; }
-/* Wrap off: the code columns grow to the longest line and the body scrolls
-   sideways. With the old 1fr columns the cell clipped its own text instead,
-   so the rest of a long line was unreachable. */
+/* Unwrapped code only exists in the unified view: a split diff wraps, because
+   two columns cannot both stay in view once one is as wide as its longest
+   line. The single column grows to its widest line; the band rows are given
+   the same width so they cover the scrolled content instead of stopping at
+   the pane edge. */
 .gwb-nowrap .gwb-dc.code { white-space: pre; overflow-wrap: normal; }
-.gwb-nowrap .gwb-dc { overflow: visible; }
-.gwb-nowrap .gwb-drow[data-mode="unified"] { grid-template-columns: 46px 46px 12px max-content; }
-.gwb-nowrap .gwb-drow[data-mode="side"] { grid-template-columns: 46px 12px max-content 18px 46px 12px max-content; }
-/* Two grids cannot share their content widths, so the version labels step
-   aside; the headers stretch over the scrolled width instead of leaving a
-   hole once the body scrolls right. */
-.gwb-nowrap .gwb-diffside { display: none; }
+.gwb-nowrap .gwb-drow[data-mode="unified"] { grid-template-columns: 46px 46px 12px var(--gwb-uw, max-content); }
 .gwb-nowrap .gwb-hunkhead,
 .gwb-nowrap .gwb-section,
-.gwb-nowrap .gwb-hunkgap { width: max-content; min-width: 100%; }
+.gwb-nowrap .gwb-hunkgap,
+.gwb-nowrap .gwb-turnfile .gwb-ovhead { width: var(--gwb-codew, 100%); min-width: 100%; }
 .gwb-dc.code.add { background: var(--gwb-diff-add-bg); }
 .gwb-dc.code.del { background: var(--gwb-diff-del-bg); }
 .gwb-dc.code.pad { background-color: var(--gwb-diff-gap); background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(128,128,128,.06) 6px 7px); }
@@ -836,10 +833,11 @@ window.__ModuleLoader__.load({
   position: sticky; top: 0; z-index: 3; font-size: 12px; color: var(--gwb-dim);
 }
 .gwb-merge-region { border-bottom: 1px solid var(--gwb-border); }
-/* The three bulk actions wrap as one block: loose buttons used to split across
-   the two lines and orphan 全部接受双方 on its own row. */
-.gwb-merge-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.gwb-merge-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 11px; color: var(--gwb-dim); }
+.gwb-merge-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; row-gap: 2px; padding: 4px 10px; font-size: 11px; color: var(--gwb-dim); }
+/* One group per conflict: accept a side, accept both, or edit the result. */
+.gwb-merge-acts { display: inline-flex; align-items: center; gap: 10px; flex: none; }
+.gwb-link.ours { color: var(--gwb-add-ink); }
+.gwb-link.theirs { color: var(--gwb-del-ink); }
 .gwb-merge-n {
   flex: none; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; text-align: center;
   border-radius: 9px; background: color-mix(in srgb, var(--gwb-del) 16%, transparent);
@@ -850,9 +848,23 @@ window.__ModuleLoader__.load({
 .gwb-merge-cols[data-cols="3"] { grid-template-columns: 1fr 1fr 1fr; }
 .gwb-merge[data-narrow="1"] .gwb-merge-cols { grid-template-columns: 1fr; }
 .gwb-merge[data-narrow="1"] .gwb-merge-col + .gwb-merge-col { border-left: 0; border-top: 1px solid var(--gwb-border); }
-.gwb-merge-col { min-width: 0; }
-/* One line-number cell per column: a conflict side has its own numbering. */
+.gwb-merge-col { min-width: 0; display: flex; flex-direction: column; }
+/* Context rows keep the file's real line numbers; a conflict side has no
+   honest numbering of its own, so its cells are the change bar and the code. */
 .gwb-merge .gwb-drow[data-mode="merge"] { grid-template-columns: 44px 10px minmax(0, 1fr); }
+.gwb-merge-col > .gwb-merge-label,
+.gwb-merge-col > .gwb-drow,
+.gwb-merge-col > .gwb-merge-agree { flex: none; }
+/* One label row for the whole file, pinned while the conflicts scroll by. Its
+   cells need opaque fills so code never shows through. */
+.gwb-merge-colshead { position: sticky; top: 0; z-index: 4; background: var(--gwb-bg); }
+.gwb-merge-colshead .gwb-merge-label { background-color: var(--gwb-bg); }
+.gwb-merge-colshead .gwb-merge-label.ours { background-color: color-mix(in srgb, var(--gwb-diff-add-bg) 60%, var(--gwb-bg)); }
+.gwb-merge-colshead .gwb-merge-label.theirs { background-color: color-mix(in srgb, var(--gwb-diff-del-bg) 60%, var(--gwb-bg)); }
+/* The stacked columns keep their labels inline; the sticky head would name
+   columns that are no longer side by side. */
+.gwb-merge:not([data-narrow="1"]) .gwb-merge-col > .gwb-merge-label { display: none; }
+.gwb-merge[data-narrow="1"] .gwb-merge-colshead { display: none; }
 .gwb-merge-col + .gwb-merge-col { border-left: 1px solid var(--gwb-border); }
 .gwb-merge-label {
   display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 11px;

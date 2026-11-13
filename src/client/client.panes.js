@@ -451,9 +451,13 @@ window.__ModuleLoader__.load({
     const LOG_ROW_MORE = 20
     /** How narrow the message column is allowed to get. */
     const LOG_SUBJECT_MIN = 40
-    /** Below these the table drops the author, then the hash. */
-    const LOG_NARROW_WIDTH = 460
-    const LOG_TIGHT_WIDTH = 340
+    /**
+     * Below these the table drops the author, then the hash. The bar sits
+     * well above the old 460: at the usual ~535px sidebar the author column
+     * had no room, and the message was the column paying for it.
+     */
+    const LOG_NARROW_WIDTH = 620
+    const LOG_TIGHT_WIDTH = 480
 
     /**
      * How many branch labels a row can spell out in the room it has. A label

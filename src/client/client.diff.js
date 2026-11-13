@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     const React = require('react')
     const h = React.createElement
-    const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
+    const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
     const { Api, COMMIT_KIND, closeDiffView, config, diffTargetStore, openDiff, openTab, statusColor, useRepoChanges, useSessionDirectory } = kit
     const { Badge, GitIcons, IconBtn, Menu, MenuRow, Safe, copyText, iconMarkup, openContextMenu, reportError, showConfirm, showToast } = require('@yann9/dsh-git-workbench/client.ui.js')
@@ -688,6 +688,19 @@ window.__ModuleLoader__.load({
         void reloadWorking()
       })
       const bodyRef = useRef(null)
+      // Remeasured when the pane appears: a hidden pane reports zero widths,
+      // and the columns must not be frozen at the fallback size.
+      const [bodyWidth, setBodyWidth] = useState(0)
+      useEffect(() => {
+        const body = bodyRef.current
+        if (!body || typeof ResizeObserver !== 'function') return undefined
+        const observer = new ResizeObserver((entries) => {
+          const width = Math.round(entries[0]?.contentRect?.width ?? 0)
+          setBodyWidth((previous) => (previous === width ? previous : width))
+        })
+        observer.observe(body)
+        return () => observer.disconnect()
+      }, [])
       // Direction to land on after a change-navigation file switch: the next
       // file's first change, or the previous file's last change.
       const pendingLand = useRef(null)
@@ -708,7 +721,30 @@ window.__ModuleLoader__.load({
       // An untouched pane follows its width; a stored or clicked choice wins,
       // even in a narrow panel — it is the reader's call to make.
       const split = sideChoice === null ? sideBySide && wide : sideBySide
-      const wrap = wrapChoice === null ? config().diffWrap !== false : wrapChoice
+      // A split diff always wraps. Two code columns cannot both stay in view
+      // once one of them is as wide as its longest line: the other one is
+      // pushed off-screen, which is worse than a wrapped line. The unwrapped
+      // reading mode is for the single column of the unified view.
+      const wrap = split ? true : wrapChoice === null ? config().diffWrap !== false : wrapChoice
+      // Unwrapped rows are separate grids: measure the widest line once and
+      // give every row that same track width, or the code drifts and the
+      // header band no longer covers the scrolled content.
+      useLayoutEffect(() => {
+        const body = bodyRef.current
+        if (!body) return
+        if (wrap || bodyWidth === 0) {
+          body.style.removeProperty('--gwb-uw')
+          body.style.removeProperty('--gwb-codew')
+          return
+        }
+        let unified = 0
+        for (const row of body.querySelectorAll('.gwb-drow[data-mode="unified"]')) {
+          unified = Math.max(unified, row.children[3]?.scrollWidth ?? 0)
+        }
+        const uw = Math.max(160, Math.ceil(unified) + 2)
+        body.style.setProperty('--gwb-uw', `${uw}px`)
+        body.style.setProperty('--gwb-codew', `${104 + uw}px`)
+      }, [bodyWidth, payload, commit, turn, blame, entries, index, expandedFolds, expandAll, wrap])
 
       // The conversation view mounts this root in a page that also hosts the
       // sticky composer; a 100%-tall root then runs underneath the input. Own
@@ -1694,6 +1730,14 @@ window.__ModuleLoader__.load({
                   ignoreWhitespace ? tt(wide ? 'diff.ignoreWsReadonly' : 'diff.ignoreWsLocked') : tt(source === 'working' ? 'diff.readonlyMode' : source === 'stash' ? 'diff.readonlyStash' : 'diff.readonly'),
                 )
               : null,
+            // The whole-file decision belongs next to the file, not in the
+            // dense control strip under it.
+            !diffReadOnly && workingUnstaged
+              ? h('button', { className: 'gwb-btn sm ctl', title: tt('stage.fileHint'), onClick: () => void stage({ file: entry?.path, direction: 'stage', mode: 'file' }) }, tt('stage.file'))
+              : null,
+            !diffReadOnly && workingStaged
+              ? h('button', { className: 'gwb-btn sm ctl', title: tt('unstage.fileHint'), onClick: () => void stage({ file: entry?.path, direction: 'unstage', mode: 'file' }) }, tt('unstage.file'))
+              : null,
             source === 'working'
               ? h(
                   'button',
@@ -1747,16 +1791,20 @@ window.__ModuleLoader__.load({
                 tt('diff.ignoreWs'),
               )
             : null,
-          h(
-            'button',
-            {
-              className: `gwb-btn sm ctl${wrap ? ' on' : ''}`,
-              title: tt('diff.wrapHint'),
-              'aria-pressed': wrap,
-              onClick: toggleWrap,
-            },
-            tt('diff.wrap'),
-          ),
+          // Split always wraps (see above); the toggle belongs to the one
+          // column where an unwrapped line can actually stay in view.
+          split
+            ? null
+            : h(
+                'button',
+                {
+                  className: `gwb-btn sm ctl${wrap ? ' on' : ''}`,
+                  title: tt('diff.wrapHint'),
+                  'aria-pressed': wrap,
+                  onClick: toggleWrap,
+                },
+                tt('diff.wrap'),
+              ),
           h(
             Menu,
             {
@@ -1782,14 +1830,17 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+          // A pressed toggle reads as a state; a label that swapped between
+          // 并排 and 统一 looked like two different buttons.
           h(
             'button',
             {
-              className: 'gwb-btn sm ctl',
+              className: `gwb-btn sm ctl${split ? ' on' : ''}`,
               title: sideChoice === null && !wide ? tt('diff.narrowAuto') : tt('diff.sideHint'),
+              'aria-pressed': split,
               onClick: toggleSideBySide,
             },
-            split ? tt('diff.side') : tt('diff.unified'),
+            tt('diff.side'),
           ),
           !diffReadOnly && selectedCount > 0
             ? [
@@ -1814,12 +1865,6 @@ window.__ModuleLoader__.load({
                     )
                   : null,
                 h('button', { key: 'b', className: 'gwb-btn sm ghost', onClick: () => setSelection(new Set()) }, tt('selection.clear')),
-              ]
-            : null,
-          !diffReadOnly
-            ? [
-                workingUnstaged ? h('button', { key: 'sf', className: 'gwb-btn sm ctl', style: { marginLeft: 'auto' }, onClick: () => void stage({ file: entry?.path, direction: 'stage', mode: 'file' }) }, tt('stage.file')) : null,
-                workingStaged ? h('button', { key: 'uf', className: 'gwb-btn sm ctl', onClick: () => void stage({ file: entry?.path, direction: 'unstage', mode: 'file' }) }, tt('unstage.file')) : null,
               ]
             : null,
         ),
@@ -2011,7 +2056,20 @@ window.__ModuleLoader__.load({
           cellCode({ text }, { type, mark, lang }),
         )
 
-      const sideColumn = (segment, side, start) => {
+      // Conflict sides have no honest line numbers — each side belongs to a
+      // different revision and the file as read here carries markers — so their
+      // numbers stay blank. The gutter is kept so the code lines up with the
+      // context rows above and below the block.
+      const mergeCellRow = (text, type, mark, key) =>
+        h(
+          'div',
+          { key, className: `gwb-drow${type === 'add' ? ' add-row' : type === 'del' ? ' del-row' : ''}`, 'data-mode': 'merge' },
+          cellNumber(null),
+          cellBar({ type, cellKey: key, selectable: false }),
+          cellCode({ text }, { type, mark, lang }),
+        )
+
+      const sideColumn = (segment, side) => {
         const lines = side === 'ours' ? segment.ours : segment.theirs
         const other = side === 'ours' ? segment.theirs : segment.ours
         // Index-wise pairing is what git's own side-by-side conflict view does;
@@ -2025,32 +2083,21 @@ window.__ModuleLoader__.load({
         return h(
           'div',
           { key: `${segment.index}-${side}`, className: 'gwb-merge-col' },
-          h(
-            'div',
-            { className: `gwb-merge-label ${side}` },
-            h('span', null, tt(side === 'ours' ? 'merge.ours' : 'merge.theirs')),
-            h('span', { className: 'gwb-grow' }),
-            readOnly
-              ? null
-              : h(
-                  'button',
-                  { className: 'gwb-link', disabled: busy, onClick: () => void decide(segment.index, side === 'ours' ? 'ours' : 'theirs') },
-                  tt(side === 'ours' ? 'merge.takeOurs' : 'merge.takeTheirs'),
-                ),
-          ),
-          lines.map((text, i) => mergeRow(text, side === 'ours' ? 'add' : 'del', marks[i], `${segment.index}-${side}-${i}`, start + i)),
+          // Narrow panes stack the columns, so the labels stay with them.
+          h('div', { className: `gwb-merge-label ${side}` }, h('span', null, tt(side === 'ours' ? 'merge.ours' : 'merge.theirs'))),
+          lines.map((text, i) => mergeCellRow(text, side === 'ours' ? 'add' : 'del', marks[i], `${segment.index}-${side}-${i}`)),
           lines.length === 0 ? h('div', { className: 'gwb-merge-agree' }, tt(side === 'ours' ? 'merge.oursEmpty' : 'merge.theirsEmpty')) : null,
         )
       }
 
       // The common ancestor sits first, so the row reads base → ours → theirs
       // and every side starts at the same height.
-      const baseColumn = (segment, start) =>
+      const baseColumn = (segment) =>
         h(
           'div',
           { key: `${segment.index}-base`, className: 'gwb-merge-col base' },
           h('div', { className: 'gwb-merge-label base' }, h('span', null, tt('merge.base'))),
-          segment.base.map((text, i) => mergeRow(text, '', null, `${segment.index}-base-${i}`, start + i)),
+          segment.base.map((text, i) => mergeCellRow(text, '', null, `${segment.index}-base-${i}`)),
           segment.base.length === 0 ? h('div', { className: 'gwb-merge-agree' }, tt('merge.baseEmpty')) : null,
         )
 
@@ -2097,10 +2144,6 @@ window.__ModuleLoader__.load({
           }
           return h('div', { key, className: 'gwb-merge-region' }, rows)
         }
-        const oursStart = cursor + 1
-        const afterOurs = oursStart + segment.ours.length
-        const baseStart = afterOurs + 1
-        const theirsStart = segment.base.length > 0 ? baseStart + segment.base.length + 1 : afterOurs + 1
         cursor += segment.raw.length
         const index = segment.index
         return h(
@@ -2112,16 +2155,22 @@ window.__ModuleLoader__.load({
             h('span', { className: 'gwb-merge-n' }, String(segment.index + 1)),
             h('span', { className: 'gwb-faint' }, `L${segment.line}`),
             h('span', { style: { flex: 1 } }),
+            // One action row per conflict. The column labels used to carry a
+            // second set, which read as two toolbars per block.
             readOnly
               ? null
-              : [
+              : h(
+                  'div',
+                  { className: 'gwb-merge-acts' },
+                  h('button', { key: 'ours', className: 'gwb-link ours', disabled: busy, onClick: () => void decide(segment.index, 'ours') }, tt('merge.takeOurs')),
+                  h('button', { key: 'theirs', className: 'gwb-link theirs', disabled: busy, onClick: () => void decide(segment.index, 'theirs') }, tt('merge.takeTheirs')),
+                  h('button', { key: 'both', className: 'gwb-link', disabled: busy, onClick: () => void decide(segment.index, 'both') }, tt('merge.takeBoth')),
                   h(
                     'button',
                     { key: 'edit', className: 'gwb-link', disabled: busy, onClick: () => (editing?.index === index ? setEditing(null) : startEdit(segment)) },
                     tt(editing?.index === index ? 'merge.closeEdit' : 'merge.edit'),
                   ),
-                  h('button', { key: 'both', className: 'gwb-link', disabled: busy, onClick: () => void decide(segment.index, 'both') }, tt('merge.takeBoth')),
-                ],
+                ),
           ),
           h(
             'div',
@@ -2131,9 +2180,9 @@ window.__ModuleLoader__.load({
               // conflict has no common block to compare against.
               'data-cols': showBase && segment.base.length > 0 ? '3' : '2',
             },
-            showBase && segment.base.length > 0 ? baseColumn(segment, baseStart) : null,
-            sideColumn(segment, 'ours', oursStart),
-            sideColumn(segment, 'theirs', theirsStart),
+            showBase && segment.base.length > 0 ? baseColumn(segment) : null,
+            sideColumn(segment, 'ours'),
+            sideColumn(segment, 'theirs'),
           ),
           editing?.index === index
             ? h(
@@ -2169,6 +2218,22 @@ window.__ModuleLoader__.load({
             : null,
         )
       })
+
+      // One set of column labels for the whole file: repeating them under every
+      // conflict read as three toolbars per block. Narrow panes hide this head
+      // and fall back to the per-column labels, which stay next to the stacked
+      // columns there.
+      const hasBase = (view?.segments ?? []).some((segment) => segment.kind !== 'plain' && segment.base.length > 0)
+      const colsHead =
+        view && regions.length > 0
+          ? h(
+              'div',
+              { className: 'gwb-merge-cols gwb-merge-colshead', 'data-cols': showBase && hasBase ? '3' : '2' },
+              showBase && hasBase ? h('div', { className: 'gwb-merge-label base' }, h('span', null, tt('merge.base'))) : null,
+              h('div', { className: 'gwb-merge-label ours' }, h('span', null, tt('merge.ours'))),
+              h('div', { className: 'gwb-merge-label theirs' }, h('span', null, tt('merge.theirs'))),
+            )
+          : null
 
       return h(
         'div',
@@ -2208,24 +2273,31 @@ window.__ModuleLoader__.load({
                 showBase ? tt('merge.hideBase') : tt('merge.showBase'),
               )
             : null,
+          // Three bulk buttons dominated the bar for an action that is rare
+          // and destructive: one menu keeps them, and the confirm, in reach.
           readOnly || !view || regions.length === 0
             ? null
             : h(
-                'div',
-                // One flex group: at sidebar width the bar wraps, and three
-                // loose buttons used to split across the two lines one by one.
-                { key: 'bulk', className: 'gwb-merge-bulk' },
-                h('button', { key: 'o', className: 'gwb-btn sm ctl', disabled: busy, onClick: () => void decideAll('ours') }, tt('merge.allOurs')),
-                h('button', { key: 't', className: 'gwb-btn sm ctl', disabled: busy, onClick: () => void decideAll('theirs') }, tt('merge.allTheirs')),
-                h('button', { key: 'b', className: 'gwb-btn sm ctl', disabled: busy, onClick: () => void decideAll('both') }, tt('merge.allBoth')),
+                Menu,
+                {
+                  key: 'bulk',
+                  align: 'down',
+                  width: 220,
+                  title: tt('merge.allHint'),
+                  button: h('button', { className: 'gwb-btn sm ctl', disabled: busy }, `${tt('merge.all')} ▾`),
+                },
+                h(MenuRow, { key: 'o', onClick: () => void decideAll('ours') }, h('span', { className: 'gwb-grow' }, tt('merge.allOurs'))),
+                h(MenuRow, { key: 't', onClick: () => void decideAll('theirs') }, h('span', { className: 'gwb-grow' }, tt('merge.allTheirs'))),
+                h(MenuRow, { key: 'b', onClick: () => void decideAll('both') }, h('span', { className: 'gwb-grow' }, tt('merge.allBoth'))),
               ),
         ),
         h(
           'div',
-          { className: `gwb-diffbody${config().diffWrap === false ? ' gwb-nowrap' : ''}` },
+          { className: 'gwb-diffbody' },
           error ? h('div', { className: 'gwb-error' }, localizeError(error)) : null,
           !view && !error ? h('div', { className: 'gwb-loading' }, tt('merge.loading')) : null,
           view && regions.length === 0 ? h('div', { className: 'gwb-empty' }, tt('merge.empty')) : null,
+          colsHead,
           view && regions.length > 0 ? body : null,
           view && view.complete === false ? h('div', { className: 'gwb-empty' }, tt('merge.broken')) : null,
         ),
