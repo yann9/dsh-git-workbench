@@ -701,7 +701,7 @@ window.__ModuleLoader__.load({
 .gwb-diffstats .gwb-diffstats-sep { color: var(--gwb-faint); margin: 0 1px; }
 .gwb-diffstats .gwb-label { font-variant-numeric: tabular-nums; }
 
-.gwb-diffbody { flex: 1 1 auto; min-height: 0; overflow: auto; font-family: var(--dsw-font-markdown-code-font-family, var(--gwb-mono)); font-size: 12px; line-height: 20px; }
+.gwb-diffbody { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; font-family: var(--dsw-font-markdown-code-font-family, var(--gwb-mono)); font-size: 12px; line-height: 20px; }
 .gwb-section { margin: 0; padding: 4px 10px; font-size: 11px; font-weight: 600; color: var(--gwb-dim); border-bottom: 1px solid var(--gwb-border); position: sticky; top: 0; background: var(--gwb-panel); z-index: 4; }
 /* Only a split diff has a sticky version-label row above the section title. */
 .gwb[data-view="split"] .gwb-section { top: 18px; }
@@ -729,14 +729,14 @@ window.__ModuleLoader__.load({
 .gwb-foldchev { margin-left: auto; flex: none; display: inline-flex; opacity: .7; }
 .gwb-foldrow[data-mode="side"] .gwb-foldspan.side-left { grid-column: 1 / 4; }
 .gwb-foldrow[data-mode="side"] .gwb-foldspan.side-right { grid-column: 5 / 8; }
-.gwb-foldrow[data-mode="side"] .gwb-foldspan.side-con { grid-column: 4; margin: 3px 0; border-radius: 0; background: transparent; cursor: default; }
+.gwb-foldrow[data-mode="side"] .gwb-foldspan.side-con { grid-column: 4; margin: 3px 0; border-radius: 0; background: var(--gwb-diff-gap); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); cursor: default; }
 
 /* Side-by-side version labels, aligned to the row grid below them. */
 .gwb-diffside { display: grid; grid-template-columns: 46px 12px minmax(0,1fr) 26px 46px 12px minmax(0,1fr); align-items: center; height: 18px; background: var(--gwb-panel); border-bottom: 1px solid var(--gwb-border); position: sticky; top: 0; z-index: 5; }
 .gwb-diffside span { padding: 0 10px; font-size: 11px; font-family: var(--gwb-mono); color: var(--gwb-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The bridge cell must carry the same vertical as the .gwb-dc.con rows below. */
-.gwb-diffside .gwb-diffside-con { position: relative; }
-.gwb-diffside .gwb-diffside-con::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: color-mix(in srgb, var(--gwb-text) 9%, transparent); }
+/* The bridge cell is the divider track: tinted like the rows, ruled on both
+   edges, so the change bands read as shapes inside a column. */
+.gwb-diffside .gwb-diffside-con { background: var(--gwb-diff-gap); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); }
 
 .gwb-drow { display: grid; align-items: stretch; min-width: 0; scroll-margin-top: 72px; }
 .gwb-drow[data-mode="side"] { grid-template-columns: 46px 12px minmax(0,1fr) 26px 46px 12px minmax(0,1fr); }
@@ -769,30 +769,24 @@ window.__ModuleLoader__.load({
 .gwb-dc.code.del { background: var(--gwb-diff-del-bg); }
 .gwb-dc.code.pad { background-color: var(--gwb-diff-gap); }
 
-/* The connector between the two panes: the visual "link" of a change pair.
-   The fill lives on ::before so the slanted cap can clip it without clipping
-   the arrow button that sits on top. The divider is one faint hairline under
-   the change fills, not a pair of rules on every row. */
-.gwb-dc.con { position: relative; background: var(--gwb-bg); }
-.gwb-dc.con::before { content: ''; position: absolute; inset: 0; background: var(--gwb-bg); }
-.gwb-dc.con::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: color-mix(in srgb, var(--gwb-text) 9%, transparent); pointer-events: none; }
-.gwb-dc.con.add::before { background: var(--gwb-diff-add-bg); }
-.gwb-dc.con.del::before { background: var(--gwb-diff-del-bg); }
-.gwb-dc.con.mod::before { background: linear-gradient(to right, var(--gwb-diff-del-bg), var(--gwb-diff-add-bg)); }
-.gwb-dc.con.add::after, .gwb-dc.con.del::after, .gwb-dc.con.mod::after { display: none; }
-.gwb-dc.con.pad::before { background: var(--gwb-diff-gap); }
-/* The band's ends slant back to the context line above and below, so a run of
-   changed rows reads as one shape instead of a stack of coloured cells. */
-.gwb-drow.gwb-change-start .gwb-dc.con::before { clip-path: polygon(0 0, 100% 100%, 0 100%); }
-.gwb-drow.gwb-change-end .gwb-dc.con::before { clip-path: polygon(100% 0, 0 100%, 100% 100%); }
-/* The divider's action: one block, one arrow, centred in its band. A round
-   ghost button so it sits on the coloured band instead of cutting through it. */
-.gwb-diffarrow { position: absolute; top: 50%; left: 50%; z-index: 1; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--gwb-dim); line-height: 1; cursor: pointer; transition: background .12s ease, color .12s ease; }
-.gwb-diffarrow:hover, .gwb-diffarrow:focus-visible { color: var(--gwb-text); background: color-mix(in srgb, var(--gwb-text) 10%, transparent); outline: none; }
-/* Hovering a row lights the pair on both sides and the bridge between them. */
+/* The divider track between the panes; the coloured shapes are painted on a
+   layer above (see drawDiffBands) so a whole change run reads as one band. */
+.gwb-dc.con { position: relative; background: var(--gwb-diff-gap); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); }
+/* The band layer: one quadrilateral per change run, outlined in its own hue. */
+.gwb-bandlayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.gwb-diffband { stroke-width: 1; }
+.gwb-diffband.add { fill: var(--gwb-diff-add-word); stroke: color-mix(in srgb, var(--gwb-diff-bar-add) 55%, transparent); }
+.gwb-diffband.del { fill: var(--gwb-diff-del-word); stroke: color-mix(in srgb, var(--gwb-diff-bar-del) 55%, transparent); }
+.gwb-diffband.mod { fill: url(#gwb-band-mod); stroke: color-mix(in srgb, var(--gwb-text) 20%, transparent); }
+.gwb-diffbands stop.del { stop-color: var(--gwb-diff-del-word); }
+.gwb-diffbands stop.add { stop-color: var(--gwb-diff-add-word); }
+/* The divider's action: one block, one arrow, centred in its band. It sits
+   above the band layer, so the shape runs behind it. */
+.gwb-diffarrow { position: absolute; top: 50%; left: 50%; z-index: 3; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--gwb-dim); line-height: 1; cursor: pointer; transition: background .12s ease, color .12s ease; }
+.gwb-diffarrow:hover, .gwb-diffarrow:focus-visible { color: var(--gwb-text); background: color-mix(in srgb, var(--gwb-bg) 78%, transparent); outline: none; }
+/* Hovering a row lights the pair on both sides. */
 .gwb-drow:hover .gwb-dc.code.add { background: color-mix(in srgb, var(--gwb-diff-add-word) 58%, var(--gwb-diff-add-bg)); }
 .gwb-drow:hover .gwb-dc.code.del { background: color-mix(in srgb, var(--gwb-diff-del-word) 58%, var(--gwb-diff-del-bg)); }
-.gwb-drow:hover .gwb-dc.con.add::before, .gwb-drow:hover .gwb-dc.con.del::before, .gwb-drow:hover .gwb-dc.con.mod::before { filter: saturate(1.3); }
 .gwb-drow:hover .gwb-dc.ln { color: var(--gwb-text); }
 .gwb-dc.code .gwb-syn-kw { color: var(--gwb-syn-keyword); }
 .gwb-dc.code .gwb-syn-str { color: var(--gwb-syn-string); }

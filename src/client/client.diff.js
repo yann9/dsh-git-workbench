@@ -364,6 +364,91 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * Paint the divider bands: one quadrilateral per change run, joining the
+     * rows changed on the left to the rows changed on the right. Rows are
+     * separate grids, so the shapes cannot be drawn in CSS — they are measured
+     * once per layout and placed on a layer above the rows.
+     */
+    function drawDiffBands(layer, body) {
+      if (!layer || !body) return
+      layer.textContent = ''
+      const rows = body.querySelectorAll('.gwb-drow[data-mode="side"]')
+      if (rows.length === 0) return
+      const origin = body.getBoundingClientRect()
+      const offsetX = origin.left - body.scrollLeft
+      const offsetY = origin.top - body.scrollTop
+      const runs = []
+      let current = null
+      for (const row of rows) {
+        const con = row.querySelector('.gwb-dc.con')
+        if (!con || !row.classList.contains('gwb-change')) {
+          current = null
+          continue
+        }
+        const key = `${row.dataset.side}:${row.dataset.hunk}`
+        if (!current || current.key !== key) {
+          current = { key, boxes: [] }
+          runs.push(current)
+        }
+        const rect = con.getBoundingClientRect()
+        current.boxes.push({
+          add: con.classList.contains('add'),
+          del: con.classList.contains('del'),
+          mod: con.classList.contains('mod'),
+          x0: rect.left - offsetX,
+          x1: rect.right - offsetX,
+          y0: rect.top - offsetY,
+          y1: rect.bottom - offsetY,
+        })
+      }
+      if (runs.length === 0) return
+      const ns = 'http://www.w3.org/2000/svg'
+      const svg = document.createElementNS(ns, 'svg')
+      svg.setAttribute('class', 'gwb-diffbands')
+      svg.setAttribute('width', String(Math.max(1, Math.ceil(body.scrollWidth))))
+      svg.setAttribute('height', String(Math.max(1, Math.ceil(body.scrollHeight))))
+      svg.setAttribute('aria-hidden', 'true')
+      const defs = document.createElementNS(ns, 'defs')
+      const gradient = document.createElementNS(ns, 'linearGradient')
+      gradient.setAttribute('id', 'gwb-band-mod')
+      gradient.setAttribute('x1', '0')
+      gradient.setAttribute('x2', '1')
+      for (const [offset, cls] of [
+        ['0', 'del'],
+        ['1', 'add'],
+      ]) {
+        const stop = document.createElementNS(ns, 'stop')
+        stop.setAttribute('offset', offset)
+        stop.setAttribute('class', cls)
+        gradient.appendChild(stop)
+      }
+      defs.appendChild(gradient)
+      svg.appendChild(defs)
+      for (const run of runs) {
+        const boxes = run.boxes
+        const left = boxes.filter((box) => box.del || box.mod)
+        const right = boxes.filter((box) => box.add || box.mod)
+        const x0 = Math.min(...boxes.map((box) => box.x0))
+        const x1 = Math.max(...boxes.map((box) => box.x1))
+        const top = Math.min(...boxes.map((box) => box.y0))
+        const bottom = Math.max(...boxes.map((box) => box.y1))
+        // A side without changed lines collapses to the run's midline: the band
+        // narrows to a point, the way an empty chunk is aligned in a merge view.
+        const mid = (top + bottom) / 2
+        const lt = left.length ? Math.min(...left.map((box) => box.y0)) : mid
+        const lb = left.length ? Math.max(...left.map((box) => box.y1)) : mid
+        const rt = right.length ? Math.min(...right.map((box) => box.y0)) : mid
+        const rb = right.length ? Math.max(...right.map((box) => box.y1)) : mid
+        const kind = boxes.some((box) => box.mod) ? 'mod' : right.length ? 'add' : 'del'
+        const path = document.createElementNS(ns, 'path')
+        path.setAttribute('class', `gwb-diffband ${kind}`)
+        path.setAttribute('d', `M${x0} ${lt}L${x1} ${rt}L${x1} ${rb}L${x0} ${lb}Z`)
+        svg.appendChild(path)
+      }
+      layer.appendChild(svg)
+    }
+
     function foldBand(segment, options) {
       // The IDE draws the collapsed run as a filled band inside each pane, with
       // the chevron at the far end; a band that spans the divider reads as one
@@ -561,8 +646,6 @@ window.__ModuleLoader__.load({
         const pairKind = !pair.left ? 'add' : !pair.right ? 'del' : pair.left.line.type === 'del' && pair.right.line.type === 'add' ? 'mod' : ''
         const kind = pair.left?.line?.type ?? pair.right?.line?.type
         const isChange = changeAt[pairIndex]
-        const startsChange = isChange && (pairIndex === 0 || !changeAt[pairIndex - 1])
-        const endsChange = isChange && (pairIndex === pairs.length - 1 || !changeAt[pairIndex + 1])
         const run = runOf[pairIndex]
         // One arrow per change run, centred in the divider: the whole block
         // moves to the other revision, like CodeMirror's divider arrows.
@@ -597,7 +680,7 @@ window.__ModuleLoader__.load({
             : null,
         )
         const cells = [...leftCells, con, ...rightCells]
-        const rowCls = `gwb-drow${selected ? ' selected' : ''}${kind === 'add' ? ' add-row' : kind === 'del' ? ' del-row' : ''}${startsChange ? ' gwb-change' : ''}${startsChange && !endsChange ? ' gwb-change-start' : ''}${endsChange && !startsChange ? ' gwb-change-end' : ''}`
+        const rowCls = `gwb-drow${selected ? ' selected' : ''}${kind === 'add' ? ' add-row' : kind === 'del' ? ' del-row' : ''}${isChange ? ' gwb-change' : ''}`
         return h(
           'div',
           {
@@ -774,6 +857,7 @@ window.__ModuleLoader__.load({
         void reloadWorking()
       })
       const bodyRef = useRef(null)
+      const bandLayerRef = useRef(null)
       // Remeasured when the pane appears: a hidden pane reports zero widths,
       // and the columns must not be frozen at the fallback size.
       const [bodyWidth, setBodyWidth] = useState(0)
@@ -786,6 +870,37 @@ window.__ModuleLoader__.load({
         })
         observer.observe(body)
         return () => observer.disconnect()
+      }, [])
+      // The divider bands are geometry: redraw them after every render (folds,
+      // modes, wrapping) and whenever the pane itself is resized.
+      const drawBands = useRef(() => {})
+      drawBands.current = () => drawDiffBands(bandLayerRef.current, bodyRef.current)
+      useLayoutEffect(() => {
+        const frame = requestAnimationFrame(() => drawBands.current())
+        return () => cancelAnimationFrame(frame)
+      })
+      useEffect(() => {
+        const body = bodyRef.current
+        if (!body) return undefined
+        let frame = 0
+        const flush = () => {
+          frame = 0
+          drawBands.current()
+        }
+        const schedule = () => {
+          if (!frame) frame = requestAnimationFrame(flush)
+        }
+        let observer = null
+        if (typeof ResizeObserver === 'function') {
+          observer = new ResizeObserver(schedule)
+          observer.observe(body)
+        }
+        window.addEventListener('resize', schedule)
+        return () => {
+          if (frame) cancelAnimationFrame(frame)
+          observer?.disconnect()
+          window.removeEventListener('resize', schedule)
+        }
       }, [])
       // Direction to land on after a change-navigation file switch: the next
       // file's first change, or the previous file's last change.
@@ -1967,6 +2082,7 @@ window.__ModuleLoader__.load({
             ref: bodyRef,
             onContextMenu: onRowContext,
           },
+          h('div', { key: 'bands', className: 'gwb-bandlayer', ref: bandLayerRef, 'aria-hidden': 'true' }),
           error
             ? h(
                 'div',
