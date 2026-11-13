@@ -349,19 +349,41 @@ window.__ModuleLoader__.load({
     }
 
     function foldBand(segment, options) {
-      return h(
-        'div',
-        { key: `fold:${segment.key}`, className: 'gwb-drow gwb-foldrow', 'data-mode': options.sideBySide ? 'side' : 'unified' },
+      // The IDE draws the collapsed run as a filled band inside each pane, with
+      // the chevron at the far end; a band that spans the divider reads as one
+      // more hunk rule instead of a control.
+      const band = (key, extra) =>
         h(
           'div',
           {
-            className: 'gwb-foldspan',
+            key,
+            className: `gwb-foldspan${extra ? ` ${extra}` : ''}`,
             title: tt('diff.expand'),
+            role: 'button',
+            tabIndex: 0,
             onClick: () => options.onToggleFold && options.onToggleFold(segment.key),
+            onKeyDown: (event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return
+              event.preventDefault()
+              options.onToggleFold && options.onToggleFold(segment.key)
+            },
           },
-          h('span', { className: 'gwb-hunkmark' }, '⋯'),
-          h('span', null, tt('diff.foldedLines', { count: segment.count })),
-        ),
+          h('span', { className: 'gwb-foldtext' }, tt('diff.foldedLines', { count: segment.count })),
+          h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }),
+        )
+      if (options.sideBySide) {
+        return h(
+          'div',
+          { key: `fold:${segment.key}`, className: 'gwb-drow gwb-foldrow', 'data-mode': 'side' },
+          band('left', 'side-left'),
+          h('div', { key: 'con', className: 'gwb-foldspan side-con', 'aria-hidden': 'true' }),
+          band('right', 'side-right'),
+        )
+      }
+      return h(
+        'div',
+        { key: `fold:${segment.key}`, className: 'gwb-drow gwb-foldrow', 'data-mode': 'unified' },
+        band('only', ''),
       )
     }
 
@@ -451,7 +473,13 @@ window.__ModuleLoader__.load({
         const count = Math.max(dels.length, adds.length)
         for (let i = 0; i < count; i += 1) pairs.push({ left: dels[i] ?? null, right: adds[i] ?? null })
       }
-      let previousContext = true
+      // A change run's first and last rows get a slanted divider cap, the way
+      // CodeMirror's bands bridge two ranges of different length.
+      const changeAt = pairs.map((pair) => {
+        const left = pair.left?.line.type ?? 'context'
+        const right = pair.right?.line.type ?? 'context'
+        return left !== 'context' || right !== 'context'
+      })
       return pairs.map((pair, pairIndex) => {
         const leftKey = pair.left ? `${options.side}:${hunkIndex}:${pair.left.index}` : null
         const rightKey = pair.right ? `${options.side}:${hunkIndex}:${pair.right.index}` : null
@@ -503,9 +531,10 @@ window.__ModuleLoader__.load({
         const pairKind = !pair.left ? 'add' : !pair.right ? 'del' : pair.left.line.type === 'del' && pair.right.line.type === 'add' ? 'mod' : ''
         const cells = [...leftCells, h('div', { key: `${pairIndex}-con`, className: `gwb-dc con${pairKind ? ` ${pairKind}` : ''}` }), ...rightCells]
         const kind = pair.left?.line?.type ?? pair.right?.line?.type
-        const startsChange = Boolean(kind && kind !== 'context' && previousContext)
-        previousContext = !kind || kind === 'context'
-        const rowCls = `gwb-drow${selected ? ' selected' : ''}${kind === 'add' ? ' add-row' : kind === 'del' ? ' del-row' : ''}${startsChange ? ' gwb-change' : ''}`
+        const isChange = changeAt[pairIndex]
+        const startsChange = isChange && (pairIndex === 0 || !changeAt[pairIndex - 1])
+        const endsChange = isChange && (pairIndex === pairs.length - 1 || !changeAt[pairIndex + 1])
+        const rowCls = `gwb-drow${selected ? ' selected' : ''}${kind === 'add' ? ' add-row' : kind === 'del' ? ' del-row' : ''}${startsChange ? ' gwb-change' : ''}${startsChange && !endsChange ? ' gwb-change-start' : ''}${endsChange && !startsChange ? ' gwb-change-end' : ''}`
         return h(
           'div',
           {
@@ -536,7 +565,7 @@ window.__ModuleLoader__.load({
     }
 
     /** @returns {import('./types').Element[]} one hunk: header + rows */
-    function hunkBlock(hunk, hunkIndex, options, hidden = 0) {
+    function hunkBlock(hunk, hunkIndex, options, hidden = 0, solo = false) {
       const range = hunk.header.replace(/^@@\s*/, '').replace(/\s*@@.*$/, '')
       // One thin band per hunk: the skipped-line count, the section and the
       // hunk action share it, so a hunk boundary is not two rules in a row.
@@ -550,7 +579,10 @@ window.__ModuleLoader__.load({
           ? h('button', { className: 'gwb-btn sm ctl gwb-hunkbtn', onClick: () => options.hunkAction(hunkIndex) }, options.hunkLabel)
           : null,
       )
-      const rows = [header]
+      // A lone hunk that starts at the top of the file has nothing to annotate:
+      // its one-line band was a stray rule above line 1. Its action is the
+      // section's action anyway, so the band goes.
+      const rows = solo && hidden === 0 && !hunk.section ? [] : [header]
       for (const segment of foldSegments(hunk.lines, hunkIndex, options)) {
         if (segment.type === 'fold') {
           rows.push(foldBand(segment, options))
@@ -944,7 +976,7 @@ window.__ModuleLoader__.load({
         hunks.forEach((hunk, hunkIndex) => {
           const previous = hunks[hunkIndex - 1]
           const hidden = previous ? hunk.oldStart - (previous.oldStart + previous.oldLines) : 0
-          nodes.push(...hunkBlock(hunk, hunkIndex, options, hidden))
+          nodes.push(...hunkBlock(hunk, hunkIndex, options, hidden, hunks.length === 1))
         })
         return nodes
       }
@@ -2126,8 +2158,8 @@ window.__ModuleLoader__.load({
                     title: tt('diff.expand'),
                     onClick: () => setOpenRuns((previous) => new Set(previous).add(key)),
                   },
-                  h('span', { className: 'gwb-hunkmark' }, '⋯'),
-                  h('span', null, tt('diff.foldedLines', { count: hidden })),
+                  h('span', { className: 'gwb-foldtext' }, tt('diff.foldedLines', { count: hidden })),
+                  h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }),
                 ),
               ),
               rows.slice(-3),
