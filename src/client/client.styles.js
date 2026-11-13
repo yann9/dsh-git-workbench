@@ -722,28 +722,29 @@ window.__ModuleLoader__.load({
 /* Collapsed unchanged run: a filled band inside each pane, chevron at the
    end — the IDE's "N unchanged lines" control, not another hunk rule. */
 .gwb-foldrow { background: var(--gwb-bg); }
-.gwb-foldspan { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; height: 22px; margin: 2px 6px; padding: 0 8px; min-width: 0; border-radius: 3px; background: color-mix(in srgb, var(--gwb-text) 7%, var(--gwb-bg)); color: var(--gwb-faint); font-size: 11px; cursor: pointer; user-select: none; }
-.gwb-foldspan:hover { color: var(--gwb-text); background: color-mix(in srgb, var(--gwb-text) 11%, var(--gwb-bg)); }
+.gwb-foldspan { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; height: 24px; margin: 3px 8px; padding: 0 9px; min-width: 0; border-radius: 6px; background: color-mix(in srgb, var(--gwb-text) 5%, transparent); color: var(--gwb-faint); font-family: var(--dsw-font-ui-font-family, system-ui, sans-serif); font-size: 11px; line-height: 1; cursor: pointer; user-select: none; transition: background .12s ease, color .12s ease; }
+.gwb-foldspan:hover { color: var(--gwb-text); background: color-mix(in srgb, var(--gwb-text) 9%, transparent); }
 .gwb-foldspan:focus-visible { outline: 1px solid var(--gwb-accent); outline-offset: -1px; }
 .gwb-foldtext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gwb-foldchev { margin-left: auto; flex: none; width: 6px; height: 6px; border-right: 1.4px solid currentColor; border-bottom: 1.4px solid currentColor; transform: rotate(45deg) translateY(-2px); opacity: .8; }
+.gwb-foldchev { margin-left: auto; flex: none; display: inline-flex; opacity: .7; }
 .gwb-foldrow[data-mode="side"] .gwb-foldspan.side-left { grid-column: 1 / 4; }
 .gwb-foldrow[data-mode="side"] .gwb-foldspan.side-right { grid-column: 5 / 8; }
-.gwb-foldrow[data-mode="side"] .gwb-foldspan.side-con { grid-column: 4; margin: 2px 0; border-radius: 0; background: var(--gwb-bg); border-left: 1px solid var(--gwb-border); border-right: 1px solid var(--gwb-border); cursor: default; }
+.gwb-foldrow[data-mode="side"] .gwb-foldspan.side-con { grid-column: 4; margin: 3px 0; border-radius: 0; background: transparent; cursor: default; }
 
 /* Side-by-side version labels, aligned to the row grid below them. */
 .gwb-diffside { display: grid; grid-template-columns: 46px 12px minmax(0,1fr) 26px 46px 12px minmax(0,1fr); align-items: center; height: 18px; background: var(--gwb-panel); border-bottom: 1px solid var(--gwb-border); position: sticky; top: 0; z-index: 5; }
 .gwb-diffside span { padding: 0 10px; font-size: 11px; font-family: var(--gwb-mono); color: var(--gwb-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The bridge cell must carry the same verticals as the .gwb-dc.con rows below. */
-.gwb-diffside .gwb-diffside-con { border-left: 1px solid var(--gwb-border); border-right: 1px solid var(--gwb-border); }
-.gwb-diffside .gwb-diffside-right { border-left: 1px solid var(--gwb-border); }
+/* The bridge cell must carry the same vertical as the .gwb-dc.con rows below. */
+.gwb-diffside .gwb-diffside-con { position: relative; }
+.gwb-diffside .gwb-diffside-con::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: color-mix(in srgb, var(--gwb-text) 9%, transparent); }
 
 .gwb-drow { display: grid; align-items: stretch; min-width: 0; scroll-margin-top: 72px; }
 .gwb-drow[data-mode="side"] { grid-template-columns: 46px 12px minmax(0,1fr) 26px 46px 12px minmax(0,1fr); }
 .gwb-drow[data-mode="unified"] { grid-template-columns: 46px 46px 12px minmax(0,1fr); }
-.gwb-dc { min-height: 20px; line-height: 20px; min-width: 0; overflow: hidden; }
-/* IDEA keeps line numbers neutral; the coloured change bar carries the state. */
-.gwb-dc.ln { text-align: right; padding-right: 8px; color: var(--gwb-diff-ln); font-size: 11px; user-select: none; background: var(--gwb-panel); border-right: 1px solid var(--gwb-border); font-variant-numeric: tabular-nums; }
+.gwb-dc { min-height: 21px; line-height: 21px; min-width: 0; overflow: hidden; }
+/* IDEA keeps line numbers neutral; the coloured change bar carries the state.
+   No rule between gutter and code — the gap alone separates them. */
+.gwb-dc.ln { text-align: right; padding-right: 8px; color: var(--gwb-diff-ln); font-size: 11px; user-select: none; background: transparent; font-variant-numeric: tabular-nums; }
 .gwb-dc.ln.pad { background: var(--gwb-diff-gap); }
 .gwb-dc.bar { position: relative; background: transparent; user-select: none; }
 .gwb-dc.bar.add { cursor: pointer; background: linear-gradient(to right, var(--gwb-diff-bar-add) 3px, transparent 3px); }
@@ -770,20 +771,24 @@ window.__ModuleLoader__.load({
 
 /* The connector between the two panes: the visual "link" of a change pair.
    The fill lives on ::before so the slanted cap can clip it without clipping
-   the arrow button that sits on top. */
-.gwb-dc.con { position: relative; background: var(--gwb-bg); border-left: 1px solid var(--gwb-border); border-right: 1px solid var(--gwb-border); }
+   the arrow button that sits on top. The divider is one faint hairline under
+   the change fills, not a pair of rules on every row. */
+.gwb-dc.con { position: relative; background: var(--gwb-bg); }
 .gwb-dc.con::before { content: ''; position: absolute; inset: 0; background: var(--gwb-bg); }
+.gwb-dc.con::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: color-mix(in srgb, var(--gwb-text) 9%, transparent); pointer-events: none; }
 .gwb-dc.con.add::before { background: var(--gwb-diff-add-bg); }
 .gwb-dc.con.del::before { background: var(--gwb-diff-del-bg); }
 .gwb-dc.con.mod::before { background: linear-gradient(to right, var(--gwb-diff-del-bg), var(--gwb-diff-add-bg)); }
+.gwb-dc.con.add::after, .gwb-dc.con.del::after, .gwb-dc.con.mod::after { display: none; }
 .gwb-dc.con.pad::before { background: var(--gwb-diff-gap); }
 /* The band's ends slant back to the context line above and below, so a run of
    changed rows reads as one shape instead of a stack of coloured cells. */
 .gwb-drow.gwb-change-start .gwb-dc.con::before { clip-path: polygon(0 0, 100% 100%, 0 100%); }
 .gwb-drow.gwb-change-end .gwb-dc.con::before { clip-path: polygon(100% 0, 0 100%, 100% 100%); }
-/* The divider's action: one block, one arrow, centred in its band. */
-.gwb-diffarrow { position: absolute; top: 50%; left: 50%; z-index: 1; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--gwb-dim); font-size: 12px; line-height: 1; cursor: pointer; }
-.gwb-diffarrow:hover, .gwb-diffarrow:focus-visible { color: var(--gwb-text); background: var(--gwb-hover); outline: none; }
+/* The divider's action: one block, one arrow, centred in its band. A round
+   ghost button so it sits on the coloured band instead of cutting through it. */
+.gwb-diffarrow { position: absolute; top: 50%; left: 50%; z-index: 1; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--gwb-dim); line-height: 1; cursor: pointer; transition: background .12s ease, color .12s ease; }
+.gwb-diffarrow:hover, .gwb-diffarrow:focus-visible { color: var(--gwb-text); background: color-mix(in srgb, var(--gwb-text) 10%, transparent); outline: none; }
 /* Hovering a row lights the pair on both sides and the bridge between them. */
 .gwb-drow:hover .gwb-dc.code.add { background: color-mix(in srgb, var(--gwb-diff-add-word) 58%, var(--gwb-diff-add-bg)); }
 .gwb-drow:hover .gwb-dc.code.del { background: color-mix(in srgb, var(--gwb-diff-del-word) 58%, var(--gwb-diff-del-bg)); }

@@ -348,6 +348,22 @@ window.__ModuleLoader__.load({
       return segments
     }
 
+    // A round-capped stroke chevron: the text glyphs ←/→ come from the code
+    // font and read as punctuation, not as a control.
+    function chevronIcon(direction) {
+      const d =
+        direction === 'left'
+          ? 'M7.5 2.5 4 6l3.5 3.5'
+          : direction === 'down'
+            ? 'M2.5 4.5 6 8l3.5-3.5'
+            : 'M4.5 2.5 8 6 4.5 9.5'
+      return h(
+        'svg',
+        { viewBox: '0 0 12 12', width: 12, height: 12, fill: 'none', 'aria-hidden': 'true', focusable: 'false' },
+        h('path', { d, stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+      )
+    }
+
     function foldBand(segment, options) {
       // The IDE draws the collapsed run as a filled band inside each pane, with
       // the chevron at the far end; a band that spans the divider reads as one
@@ -369,7 +385,7 @@ window.__ModuleLoader__.load({
             },
           },
           h('span', { className: 'gwb-foldtext' }, tt('diff.foldedLines', { count: segment.count })),
-          h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }),
+          h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }, chevronIcon('down')),
         )
       if (options.sideBySide) {
         return h(
@@ -576,7 +592,7 @@ window.__ModuleLoader__.load({
                     options.blockAction({ hunk: hunkIndex, lines: runLines })
                   },
                 },
-                options.blockArrow === 'right' ? '→' : '←',
+                chevronIcon(options.blockArrow),
               )
             : null,
         )
@@ -2212,7 +2228,7 @@ window.__ModuleLoader__.load({
                     onClick: () => setOpenRuns((previous) => new Set(previous).add(key)),
                   },
                   h('span', { className: 'gwb-foldtext' }, tt('diff.foldedLines', { count: hidden })),
-                  h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }),
+                  h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }, chevronIcon('down')),
                 ),
               ),
               rows.slice(-3),
