@@ -1301,16 +1301,22 @@ export class GitService {
     const root = await this.resolveDir(input.dir)
     const remote = input.remote ? this.remoteNameToken(input.remote) : ''
     return this.withWriteLock(async () => {
-      // No upstream yet: publish the current branch instead of failing with a
-      // message about --set-upstream.
-      const upstream = await runGit(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { allowFailure: true })
+      // No upstream yet — or one that carries a different branch name. The
+      // latter happens when a branch is created from another remote branch
+      // under a new name, or renamed after it was pushed; a bare `git push`
+      // refuses to guess between that upstream and the same-name branch
+      // (push.default=simple), so publish this branch under its own name.
+      const head = await runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { allowFailure: true })
+      const branch = head.code === 0 ? head.stdout.trim() : ''
+      const merge = branch === '' ? null : await runGit(root, ['config', '--get', `branch.${branch}.merge`], { allowFailure: true })
+      const tracksSameName = merge !== null && merge.code === 0 && merge.stdout.trim() === `refs/heads/${branch}`
       let args
-      if (upstream.code === 0) {
+      if (tracksSameName) {
         args = ['push']
       } else {
         // `origin` is a convention, not a fact: push to the remote the user
-        // picked, else `origin` when it exists, else the only remote there is.
-        const target = remote || (await this.defaultRemote(root))
+        // picked, else the one this branch was tracking, else the only remote.
+        const target = remote || (await this.trackedRemote(root, branch)) || (await this.defaultRemote(root))
         args = ['push', '-u', target, 'HEAD']
       }
       // Force uses --force-with-lease: it refuses to overwrite a remote commit
@@ -1318,6 +1324,18 @@ export class GitService {
       if (input.force) args.push('--force-with-lease')
       return this.network(root, args)
     })
+  }
+
+  /**
+   * The remote `branch.<name>.remote` names, when it still names a remote
+   * (`.` means the upstream is a local branch). '' otherwise.
+   */
+  async trackedRemote(root, branch) {
+    if (branch === '') return ''
+    const value = await runGit(root, ['config', '--get', `branch.${branch}.remote`], { allowFailure: true })
+    const name = value.code === 0 ? value.stdout.trim() : ''
+    // Config is user-editable, so it must not read as a git option.
+    return /^[\p{L}\p{N}][\p{L}\p{N}._/-]*$/u.test(name) ? name : ''
   }
 
   /**

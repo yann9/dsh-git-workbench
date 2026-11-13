@@ -409,6 +409,13 @@ test('a local branch can be created from a remote one, and the remote one delete
     assert.equal(created.status, 200, JSON.stringify(created.payload))
     assert.equal(gitSync(dir, ['rev-parse', '--abbrev-ref', 'review@{upstream}']).trim(), 'origin/feature')
 
+    // That upstream carries another name, which push.default=simple refuses
+    // to resolve: the first push has to publish the local name instead.
+    const firstPush = await post('/push', {})
+    assert.equal(firstPush.status, 200, JSON.stringify(firstPush.payload))
+    assert.equal(gitSync(bare, ['rev-parse', '--verify', 'refs/heads/review']).trim(), gitSync(dir, ['rev-parse', 'HEAD']).trim())
+    assert.equal(gitSync(dir, ['rev-parse', '--abbrev-ref', 'review@{upstream}']).trim(), 'origin/review')
+
     const refused = await post('/delete-remote-branch', { remote: 'origin', branch: 'main' })
     assert.equal(refused.status, 500)
     assert.match(refused.payload.error, /refusing to delete the default branch/)

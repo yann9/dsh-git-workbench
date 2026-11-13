@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- Pushing a branch whose upstream carries another name — one just created
+  from a different remote branch, or one renamed after it was pushed — no
+  longer dies on "the upstream branch … does not match the name of your
+  current branch": the push publishes it under its own name and points it at
+  that remote branch.
+
 ## 0.1.8 — 2026-11-10
 
 ### Fixed
