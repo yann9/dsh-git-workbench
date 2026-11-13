@@ -618,8 +618,8 @@ window.__ModuleLoader__.load({
    belongs to another group now. */
 .gwb-loggroup.collapsed { color: var(--gwb-faint); }
 .gwb-filter { display: flex; align-items: center; gap: 6px; padding: 6px 8px 4px; flex: none; }
-/* The search field owns its border so the magnifier and the field picker can
-   live inside it; the bare input drops the chrome it would otherwise draw. */
+/* The search field owns its border so the magnifier can live inside it; the
+   bare input drops the chrome it would otherwise draw. */
 .gwb-search {
   display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0;
   height: 24px; padding: 0 4px 0 8px; border: 1px solid var(--gwb-border);
@@ -635,12 +635,6 @@ window.__ModuleLoader__.load({
    field picker and reads as a second trailing control. The chips below the
    field already remove the conditions one by one, so it only adds noise. */
 .gwb-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
-.gwb-search-caret {
-  display: inline-flex; align-items: center; justify-content: center; flex: none;
-  width: 18px; height: 18px; padding: 0; border: 0; border-radius: 3px;
-  background: transparent; color: var(--gwb-faint); cursor: pointer;
-}
-.gwb-search-caret:hover { background: var(--gwb-hover); color: var(--gwb-text); }
 /* The parsed conditions of the search. A condition wears the pill of the
    other history filters; free text stays neutral — it is words, not a field —
    and a field without a value yet is outlined rather than filled. */
@@ -648,9 +642,16 @@ window.__ModuleLoader__.load({
 /* A chip keeps its width and lets the row wrap: squeezed chips turn every
    value into an ellipsis, and a condition nobody can read is no condition. */
 .gwb-qchip { flex: 0 0 auto; max-width: min(240px, 100%); }
-.gwb-qchip-key { font-family: var(--gwb-mono); font-weight: 600; }
+/* The field name is a label, not the syntax: it stays in the reader's own
+   language and in the same face as the value it introduces. */
+.gwb-qchip-key { font-weight: 600; opacity: .72; }
 .gwb-qchip.free { background: var(--gwb-hover); color: var(--gwb-dim); }
 .gwb-qchip.pending { background: transparent; color: var(--gwb-faint); box-shadow: inset 0 0 0 1px var(--gwb-border); }
+.gwb-qclear {
+  padding: 2px 4px; border: 0; border-radius: 3px; background: transparent;
+  color: var(--gwb-accent-ink); font-size: 11px; cursor: pointer;
+}
+.gwb-qclear:hover { background: var(--gwb-hover); }
 .gwb-commitmeta h3 { margin: 0 0 4px; font-size: 13px; }
 .gwb-commithead { display: flex; align-items: center; gap: 4px; }
 .gwb-commithead h3 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -743,8 +744,20 @@ window.__ModuleLoader__.load({
 .gwb-dc.bar.del:hover { background: linear-gradient(to right, var(--gwb-diff-bar-del) 3px, var(--gwb-hover) 3px); }
 .gwb-dc.bar.pad { background: var(--gwb-diff-gap); }
 .gwb-dc.code { padding: 0 10px; white-space: pre-wrap; overflow-wrap: break-word; }
-/* diffWrap: false — clip instead of wrapping (horizontal scroll stays available) */
+/* Wrap off: the code columns grow to the longest line and the body scrolls
+   sideways. With the old 1fr columns the cell clipped its own text instead,
+   so the rest of a long line was unreachable. */
 .gwb-nowrap .gwb-dc.code { white-space: pre; overflow-wrap: normal; }
+.gwb-nowrap .gwb-dc { overflow: visible; }
+.gwb-nowrap .gwb-drow[data-mode="unified"] { grid-template-columns: 46px 46px 12px max-content; }
+.gwb-nowrap .gwb-drow[data-mode="side"] { grid-template-columns: 46px 12px max-content 18px 46px 12px max-content; }
+/* Two grids cannot share their content widths, so the version labels step
+   aside; the headers stretch over the scrolled width instead of leaving a
+   hole once the body scrolls right. */
+.gwb-nowrap .gwb-diffside { display: none; }
+.gwb-nowrap .gwb-hunkhead,
+.gwb-nowrap .gwb-section,
+.gwb-nowrap .gwb-hunkgap { width: max-content; min-width: 100%; }
 .gwb-dc.code.add { background: var(--gwb-diff-add-bg); }
 .gwb-dc.code.del { background: var(--gwb-diff-del-bg); }
 .gwb-dc.code.pad { background-color: var(--gwb-diff-gap); background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(128,128,128,.06) 6px 7px); }
@@ -769,6 +782,12 @@ window.__ModuleLoader__.load({
 .gwb-dc.code .gwb-word { border-radius: 2px; }
 .gwb-dc.code .gwb-word.add { background: var(--gwb-diff-add-word); }
 .gwb-dc.code .gwb-word.del { background: var(--gwb-diff-del-word); }
+/* Highlight off: the change bars still carry the state, the coloured line
+   background and the word marks are gone — a plain editor view. */
+.gwb-codeflat .gwb-dc.code.add,
+.gwb-codeflat .gwb-dc.code.del,
+.gwb-codeflat .gwb-drow:hover .gwb-dc.code.add,
+.gwb-codeflat .gwb-drow:hover .gwb-dc.code.del { background: transparent; }
 
 /* ------------------------------------------------------- blame gutter */
 
@@ -827,6 +846,8 @@ window.__ModuleLoader__.load({
   color: var(--gwb-del-ink); font-size: 11px; font-weight: 600;
 }
 .gwb-merge-cols { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; }
+/* Three panes when the ancestor exists (base | ours | theirs), two otherwise. */
+.gwb-merge-cols[data-cols="3"] { grid-template-columns: 1fr 1fr 1fr; }
 .gwb-merge[data-narrow="1"] .gwb-merge-cols { grid-template-columns: 1fr; }
 .gwb-merge[data-narrow="1"] .gwb-merge-col + .gwb-merge-col { border-left: 0; border-top: 1px solid var(--gwb-border); }
 .gwb-merge-col { min-width: 0; }
@@ -839,8 +860,9 @@ window.__ModuleLoader__.load({
 }
 .gwb-merge-label.ours { color: var(--gwb-add-ink); background: color-mix(in srgb, var(--gwb-diff-add-bg) 60%, transparent); }
 .gwb-merge-label.theirs { color: var(--gwb-del-ink); background: color-mix(in srgb, var(--gwb-diff-del-bg) 60%, transparent); }
+/* The ancestor is context, not a side: neutral label, no tint. */
+.gwb-merge-label.base { color: var(--gwb-dim); background: var(--gwb-panel); }
 .gwb-merge-label .gwb-grow { flex: 1 1 auto; }
-.gwb-merge-base { max-height: 220px; overflow: auto; border-bottom: 1px solid var(--gwb-border); background: var(--gwb-panel); }
 .gwb-merge-agree { padding: 2px 10px; font-size: 11px; color: var(--gwb-faint); }
 /* Hand-edited result: free text under the two sides, monospace like the code. */
 .gwb-merge-edit { border-top: 1px solid var(--gwb-border); background: var(--gwb-panel); padding-bottom: 8px; }
@@ -1370,10 +1392,10 @@ window.__ModuleLoader__.load({
 .gwb-menu .gwb-menu-row.gwb-noclick { cursor: default; }
 .gwb-menu .gwb-menu-row.gwb-noclick:hover { background: none; }
 /* Small glyph controls keep their size but inherit a real hit area. */
-.gwb-fchip-x, .gwb-search-caret, .gwb-menu .gwb-action-caret,
+.gwb-fchip-x, .gwb-menu .gwb-action-caret,
 .gwb-settings input[type="checkbox"], .gwb-stash-file input[type="checkbox"],
 .gwb-confirm-option input[type="checkbox"] { position: relative; }
-.gwb-fchip-x::before, .gwb-search-caret::before, .gwb-menu .gwb-action-caret::before,
+.gwb-fchip-x::before, .gwb-menu .gwb-action-caret::before,
 .gwb-settings input[type="checkbox"]::before, .gwb-stash-file input[type="checkbox"]::before,
 .gwb-confirm-option input[type="checkbox"]::before {
   content: ''; position: absolute; inset: -4px;

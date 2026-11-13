@@ -307,6 +307,25 @@ test('computeGraph keeps children above parents in one lane', async () => {
   assert.equal(rows[2].after.length, 0)
 })
 
+test('computeGraph joins a merged branch back into the lane it came from', async () => {
+  const { panes } = await loadClient()
+  // The usual shape: a feature branch (b) forked from c and was merged by m.
+  // The feature lane reaches c, which already has a lane on the main line; the
+  // old renderer wrote c into both lanes and left one line running forever.
+  const rows = panes.computeGraph([
+    { hash: 'm', parents: ['a', 'b'] },
+    { hash: 'b', parents: ['c'] },
+    { hash: 'a', parents: ['c'] },
+    { hash: 'c', parents: [] },
+  ])
+  for (const row of rows) {
+    const live = row.after.filter(Boolean)
+    assert.equal(new Set(live).size, live.length, 'a commit never occupies two lanes')
+  }
+  assert.ok(rows[2].edges.some((edge) => edge.from === 0 && edge.to === 1), 'a joins c’s existing lane')
+  assert.deepEqual(Array.from(rows[3].after), [], 'the last commit ends every lane')
+})
+
 test('the log search reads structured conditions and keeps the rest as free text', async () => {
   const { panes } = await loadClient()
   const parsed = panes.parseLogQuery('author:ada message:fix')
