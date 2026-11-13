@@ -259,6 +259,87 @@ test('pull and push fail fast with the git output, never hang on credentials', a
   }
 })
 
+test('network operations answer with what changed, not git\'s banner', async () => {
+  const dir = await makeRepo()
+  const bare = await makeTempDir('dsh-git-remote-')
+  gitSync(bare, ['init', '-q', '--bare'])
+  const { server, base } = await startServer(dir)
+  const post = async (route, body = {}) => {
+    const response = await fetch(`${base}/api${route}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dir, ...body }),
+    })
+    return { status: response.status, payload: await response.json() }
+  }
+  try {
+    gitSync(dir, ['remote', 'add', 'origin', bare])
+
+    // First push: the branch did not exist on the remote, and the toast needs
+    // to know that to say "published a new branch" instead of repeating git.
+    const first = await post('/push')
+    assert.equal(first.status, 200, JSON.stringify(first.payload))
+    assert.equal(first.payload.branch, 'main')
+    assert.equal(first.payload.upstream, 'origin/main')
+    assert.equal(first.payload.created, true)
+    assert.equal(first.payload.upToDate, false)
+
+    // Nothing left to send: same push, reported as up to date.
+    const second = await post('/push')
+    assert.equal(second.status, 200, JSON.stringify(second.payload))
+    assert.equal(second.payload.created, false)
+    assert.equal(second.payload.upToDate, true)
+
+    // A fetch counts the remote-tracking refs that moved, but neither fetch
+    // output nor an empty count reaches the caller as prose.
+    assert.equal((await post('/fetch')).payload.changed, 0)
+    gitSync(bare, ['branch', 'other', 'main'])
+    assert.equal((await post('/fetch')).payload.changed, 1)
+
+    // A pull says whether HEAD moved and how much work arrived.
+    await writeFile(path.join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    gitSync(dir, ['commit', '-q', '-am', 'local work'])
+    gitSync(dir, ['push', '-q', 'origin', 'main'])
+    gitSync(dir, ['reset', '-q', '--hard', 'HEAD~1'])
+    const pulled = await post('/pull')
+    assert.equal(pulled.status, 200, JSON.stringify(pulled.payload))
+    assert.equal(pulled.payload.updated, true)
+    assert.equal(pulled.payload.incoming, 1)
+    assert.equal(pulled.payload.upstream, 'origin/main')
+    assert.equal((await post('/pull')).payload.updated, false)
+
+    // A merge distinguishes a fast-forward from a merge commit, and merging an
+    // already-merged branch reports no change at all.
+    gitSync(dir, ['switch', '-q', '-c', 'side'])
+    await writeFile(path.join(dir, 'side.txt'), 'side\n')
+    gitSync(dir, ['add', '-A'])
+    gitSync(dir, ['commit', '-q', '-m', 'side work'])
+    gitSync(dir, ['switch', '-q', 'main'])
+    const fastForwarded = await post('/merge', { branch: 'side' })
+    assert.equal(fastForwarded.status, 200, JSON.stringify(fastForwarded.payload))
+    assert.equal(fastForwarded.payload.fastForward, true)
+    assert.equal(fastForwarded.payload.incoming, 1)
+    assert.equal((await post('/merge', { branch: 'side' })).payload.updated, false)
+
+    gitSync(dir, ['switch', '-q', '-c', 'branchy', 'main'])
+    await writeFile(path.join(dir, 'branchy.txt'), 'branch\n')
+    gitSync(dir, ['add', '-A'])
+    gitSync(dir, ['commit', '-q', '-m', 'branch work'])
+    gitSync(dir, ['switch', '-q', 'main'])
+    await writeFile(path.join(dir, 'main.txt'), 'main\n')
+    gitSync(dir, ['add', '-A'])
+    gitSync(dir, ['commit', '-q', '-m', 'main work'])
+    const merged = await post('/merge', { branch: 'branchy' })
+    assert.equal(merged.status, 200, JSON.stringify(merged.payload))
+    assert.equal(merged.payload.fastForward, false)
+    assert.equal(merged.payload.incoming, 1)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    await rm(dir, { recursive: true, force: true })
+    await rm(bare, { recursive: true, force: true })
+  }
+})
+
 test('immutable endpoints answer 304 while working-tree reads stay fresh', async (t) => {
   const dir = await makeRepo()
   const { server, base } = await startServer(dir)

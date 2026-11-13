@@ -934,35 +934,51 @@ window.__ModuleLoader__.load({
 
     /**
      * The branch menu's operations — one implementation for the Commit pane and
-     * the header menu. Returns the toast text (git's own tail, or a generic done).
+     * the header menu. Returns the toast text.
      * @param {string} dir
      * @param {'pull'|'push'|'fetch'|'merge'|'switchTo'|'pushTag'|'createTag'|'deleteTag'} kind
      * @param {string} [branch]
      */
     async function runNetOp(dir, kind, branch, options = {}) {
-      // git prints its narrative on stderr and leaves stdout nearly empty, so
-      // the last few lines are what the toast should show.
-      const tail = (result) => String(result.output ?? '').split('\n').filter(Boolean).slice(-3).join('\n') || tt('net.done')
+      // git's transfer banner is a log, not a caption: the answer from the host
+      // carries the facts (branch, upstream, commit counts) and the toast says
+      // them in the user's language.
+      const commitNote = (count) => (Number(count) > 0 ? tt('toast.withCommits', { count }) : '')
       switch (kind) {
-        case 'merge':
-          return tail(await Api.merge(dir, branch))
+        case 'merge': {
+          const result = await Api.merge(dir, branch)
+          if (!result?.updated) return tt('toast.mergeUpToDate', { branch })
+          return tt(result.fastForward ? 'toast.fastForwarded' : 'toast.merged', { branch }) + commitNote(result.incoming)
+        }
         case 'rebaseOnto': {
           const result = await Api.rebaseOnto(dir, branch)
           if (result?.paused) return tt('toast.rebasePaused')
           return tt('toast.rebasedOnto', { branch })
         }
-        case 'pull':
-        case 'push':
-          return tail(await Api[kind](dir, options))
-        case 'fetch':
+        case 'pull': {
+          const result = await Api.pull(dir, options)
+          if (!result?.updated) return tt('toast.pullUpToDate', { upstream: result.upstream })
+          return tt('toast.pulled', { upstream: result.upstream }) + commitNote(result.incoming)
+        }
+        case 'push': {
+          const result = await Api.push(dir, options)
+          if (result?.upToDate) return tt('toast.pushUpToDate', { branch: result.branch })
+          const message = tt(result?.created ? 'toast.pushedNew' : 'toast.pushed', { branch: result.branch, upstream: result.upstream })
+          return message + commitNote(result?.ahead)
+        }
+        case 'fetch': {
           // The route is /fetch but the client method is fetchAll — dispatching
           // on the kind name would call a method that does not exist.
-          return tail(await Api.fetchAll(dir))
+          const result = await Api.fetchAll(dir)
+          return Number(result?.changed) > 0 ? tt('toast.fetched', { count: result.changed }) : tt('toast.fetchUpToDate')
+        }
         case 'switchTo':
           await Api.switchTo(dir, branch)
           return tt('toast.switchedTo', { ref: branch })
-        case 'pushTag':
-          return tail(await Api.pushTag(dir, branch))
+        case 'pushTag': {
+          const result = await Api.pushTag(dir, branch)
+          return tt('toast.tagPushed', { name: branch, remote: result?.remote ?? '' })
+        }
         case 'deleteTag':
           await Api.deleteTag(dir, { names: [branch] })
           return tt('toast.tagDeleted', { name: branch })

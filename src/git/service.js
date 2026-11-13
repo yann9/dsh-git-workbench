@@ -1288,15 +1288,74 @@ export class GitService {
     return { ok: true, output }
   }
 
-  /** @returns {Promise<{ ok: boolean, output: string }>} */
+  /** The checked-out commit and branch; the branch is '' when detached. */
+  async headState(root) {
+    const sha = await runGit(root, ['rev-parse', '--verify', '--quiet', 'HEAD'], { allowFailure: true })
+    const head = await runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { allowFailure: true })
+    return { sha: sha.code === 0 ? sha.stdout.trim() : '', branch: head.code === 0 ? head.stdout.trim() : '' }
+  }
+
+  /** `origin/main` for the checked-out branch; '' when it has no upstream. */
+  async upstreamName(root) {
+    const value = await runGit(root, ['rev-parse', '--abbrev-ref', '@{upstream}'], { allowFailure: true })
+    return value.code === 0 ? value.stdout.trim() : ''
+  }
+
+  /**
+   * How many commits `to` has that `from` lacks, merge commits excluded so the
+   * number reads as "new work" instead of counting the merge itself.
+   */
+  async incomingCommits(root, from, to) {
+    if (!from || !to || from === to) return 0
+    const value = await runGit(root, ['rev-list', '--count', '--no-merges', `${from}..${to}`], { allowFailure: true })
+    return value.code === 0 ? Number(value.stdout.trim()) || 0 : 0
+  }
+
+  /** Two parents means a merge commit; a fast-forward keeps one. */
+  async isMergeCommit(root) {
+    const value = await runGit(root, ['rev-list', '--parents', '-n', '1', 'HEAD'], { allowFailure: true })
+    return value.code === 0 && value.stdout.trim().split(/\s+/).length > 2
+  }
+
+  /** Every remote-tracking branch and the commit it points at. */
+  async remoteRefs(root) {
+    const refs = new Map()
+    const value = await runGit(root, ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/remotes'], { allowFailure: true })
+    if (value.code !== 0) return refs
+    for (const line of value.stdout.split('\n')) {
+      const space = line.lastIndexOf(' ')
+      const ref = line.slice(0, space)
+      // `refs/remotes/<remote>/HEAD` is a symref the first fetch creates; it is
+      // not a branch of the remote and must not read as one that changed.
+      if (space > 0 && !ref.endsWith('/HEAD')) refs.set(ref, line.slice(space + 1))
+    }
+    return refs
+  }
+
+  /**
+   * @returns {Promise<{ ok: boolean, output: string, branch: string, upstream: string, updated: boolean, incoming: number }>}
+   */
   async pull(input = {}) {
     const root = await this.resolveDir(input.dir)
     // Two accepted strategies: merge (default) and rebase.
     const args = ['pull', input.rebase ? '--rebase' : '--no-rebase']
-    return this.withWriteLock(() => this.network(root, args))
+    return this.withWriteLock(async () => {
+      const before = await this.headState(root)
+      const result = await this.network(root, args)
+      const after = await this.headState(root)
+      return {
+        ...result,
+        branch: after.branch,
+        upstream: await this.upstreamName(root),
+        updated: before.sha !== after.sha,
+        incoming: await this.incomingCommits(root, before.sha, after.sha),
+      }
+    })
   }
 
-  /** @returns {Promise<{ ok: boolean, output: string }>} */
+  /**
+   * @returns {Promise<{ ok: boolean, output: string, branch: string, upstream: string, created: boolean, upToDate: boolean, ahead: number }>}
+   */
   async push(input = {}) {
     const root = await this.resolveDir(input.dir)
     const remote = input.remote ? this.remoteNameToken(input.remote) : ''
@@ -1311,18 +1370,35 @@ export class GitService {
       const merge = branch === '' ? null : await runGit(root, ['config', '--get', `branch.${branch}.merge`], { allowFailure: true })
       const tracksSameName = merge !== null && merge.code === 0 && merge.stdout.trim() === `refs/heads/${branch}`
       let args
+      let target = ''
       if (tracksSameName) {
         args = ['push']
       } else {
         // `origin` is a convention, not a fact: push to the remote the user
         // picked, else the one this branch was tracking, else the only remote.
-        const target = remote || (await this.trackedRemote(root, branch)) || (await this.defaultRemote(root))
+        target = remote || (await this.trackedRemote(root, branch)) || (await this.defaultRemote(root))
         args = ['push', '-u', target, 'HEAD']
       }
       // Force uses --force-with-lease: it refuses to overwrite a remote commit
       // we have not seen, unlike plain --force.
       if (input.force) args.push('--force-with-lease')
-      return this.network(root, args)
+      // The toast describes what the push did, so the answer has to know what
+      // the branch looked like beforehand: a missing remote-tracking ref means
+      // the branch is new on the remote, and an upstream already at HEAD means
+      // the push had nothing to send. A stale tracking ref cannot make either
+      // answer wrong — if the remote had moved, git would reject the push.
+      const pushRemote = tracksSameName ? await this.trackedRemote(root, branch) : target
+      const isNew = pushRemote !== '' && branch !== ''
+        ? (await runGit(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${pushRemote}/${branch}`], { allowFailure: true })).code !== 0
+        : false
+      const upstreamBefore = await runGit(root, ['rev-parse', '--verify', '--quiet', '@{upstream}'], { allowFailure: true })
+      const headSha = await runGit(root, ['rev-parse', '--verify', '--quiet', 'HEAD'], { allowFailure: true })
+      const upstreamSha = upstreamBefore.code === 0 ? upstreamBefore.stdout.trim() : ''
+      const sha = headSha.code === 0 ? headSha.stdout.trim() : ''
+      const upToDate = upstreamSha !== '' && upstreamSha === sha
+      const ahead = await this.incomingCommits(root, upstreamSha, sha)
+      const result = await this.network(root, args)
+      return { ...result, branch, upstream: await this.upstreamName(root), created: isNew, upToDate, ahead }
     })
   }
 
@@ -1350,19 +1426,39 @@ export class GitService {
     return (origin ?? list[0]).name
   }
 
-  /** @returns {Promise<{ ok: boolean, output: string }>} */
+  /** @returns {Promise<{ ok: boolean, output: string, changed: number }>} */
   async fetchAll(input = {}) {
     const root = await this.resolveDir(input.dir)
-    return this.withWriteLock(() => this.network(root, ['fetch', '--prune']))
+    return this.withWriteLock(async () => {
+      // A fetch prints one line per updated ref; counting the refs that moved
+      // gives the toast a fact instead of git's transfer banner.
+      const before = await this.remoteRefs(root)
+      const result = await this.network(root, ['fetch', '--prune'])
+      const after = await this.remoteRefs(root)
+      let changed = 0
+      for (const [ref, sha] of after) if (before.get(ref) !== sha) changed += 1
+      for (const ref of before.keys()) if (!after.has(ref)) changed += 1
+      return { ...result, changed }
+    })
   }
 
-  /** @returns {Promise<{ ok: boolean, output: string }>} */
+  /** @returns {Promise<{ ok: boolean, output: string, branch: string, updated: boolean, fastForward: boolean, incoming: number }>} */
   async merge(input = {}) {
     const branch = this.branchToken(input.branch)
     const root = await this.resolveDir(input.dir)
     return this.withWriteLock(async () => {
       await this.requireIdentity(root)
-      return this.network(root, ['merge', '--no-edit', branch])
+      const before = await this.headState(root)
+      const result = await this.network(root, ['merge', '--no-edit', branch])
+      const after = await this.headState(root)
+      const updated = before.sha !== after.sha
+      return {
+        ...result,
+        branch,
+        updated,
+        fastForward: updated && !(await this.isMergeCommit(root)),
+        incoming: await this.incomingCommits(root, before.sha, after.sha),
+      }
     })
   }
 
@@ -1487,7 +1583,8 @@ export class GitService {
     const name = this.refToken(input.name, 'tag name')
     const root = await this.resolveDir(input.dir)
     const remote = input.remote ? this.remoteNameToken(input.remote) : await this.defaultRemote(root)
-    return this.network(root, ['push', remote, `refs/tags/${name}:refs/tags/${name}`])
+    const result = await this.network(root, ['push', remote, `refs/tags/${name}:refs/tags/${name}`])
+    return { ...result, name, remote }
   }
 
   /** Detached checkout of any ref — the tag menu's "checkout". */

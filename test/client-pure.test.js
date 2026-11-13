@@ -1028,7 +1028,11 @@ test('every branch-menu operation reaches a real Api method', async () => {
   for (const name of Object.keys(originals)) {
     core.Api[name] = async () => {
       calls.push(name)
-      return { ok: true, output: 'one\ntwo\nthree\nfour' }
+      return {
+        ok: true, output: 'one\ntwo\nthree\nfour',
+        branch: 'main', upstream: 'origin/main', name: 'main', remote: 'origin',
+        updated: true, incoming: 2, ahead: 2, changed: 1,
+      }
     }
   }
   try {
@@ -1040,9 +1044,12 @@ test('every branch-menu operation reaches a real Api method', async () => {
       // watched a button do nothing.
       assert.deepEqual(calls, [`${kind === 'fetch' ? 'fetchAll' : kind}`], `${kind} must hit exactly one Api method`)
       assert.ok(typeof text === 'string' && text.length > 0, `${kind} returned no toast text`)
+      // git's banner is a log: the toast names what happened instead of echoing it.
+      assert.ok(!text.includes('one') && !text.includes('three'), `${kind} echoed git's output into the toast`)
     }
-    // git tells its story on stderr; the toast keeps the last three lines.
-    assert.equal(await core.runNetOp('/repo', 'pull'), 'two\nthree\nfour')
+    assert.equal(await core.runNetOp('/repo', 'pull'), '已拉取 origin/main（2 个新提交）')
+    core.Api.pull = async () => ({ ok: true, updated: false, upstream: 'origin/main' })
+    assert.equal(await core.runNetOp('/repo', 'pull'), 'origin/main 已是最新')
   } finally {
     Object.assign(core.Api, originals)
   }

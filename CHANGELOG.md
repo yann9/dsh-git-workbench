@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Pull, push, fetch, merge and tag-push report what actually happened — the
+  branch, its upstream, how many commits moved, whether a branch was new or
+  already up to date — instead of pasting git's transfer banner into the
+  toast. The host answers with those facts, so the message is in the user's
+  language even when git is not.
+
 ### Fixed
 
 - Pushing a branch whose upstream carries another name — one just created
