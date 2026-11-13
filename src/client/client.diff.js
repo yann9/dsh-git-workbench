@@ -431,20 +431,37 @@ window.__ModuleLoader__.load({
         const right = boxes.filter((box) => box.add || box.mod)
         const x0 = Math.min(...boxes.map((box) => box.x0))
         const x1 = Math.max(...boxes.map((box) => box.x1))
-        const top = Math.min(...boxes.map((box) => box.y0))
-        const bottom = Math.max(...boxes.map((box) => box.y1))
-        // A side without changed lines collapses to the run's midline: the band
-        // narrows to a point, the way an empty chunk is aligned in a merge view.
-        const mid = (top + bottom) / 2
-        const lt = left.length ? Math.min(...left.map((box) => box.y0)) : mid
-        const lb = left.length ? Math.max(...left.map((box) => box.y1)) : mid
-        const rt = right.length ? Math.min(...right.map((box) => box.y0)) : mid
-        const rb = right.length ? Math.max(...right.map((box) => box.y1)) : mid
+        const runTop = Math.min(...boxes.map((box) => box.y0))
         const kind = boxes.some((box) => box.mod) ? 'mod' : right.length ? 'add' : 'del'
-        const path = document.createElementNS(ns, 'path')
-        path.setAttribute('class', `gwb-diffband ${kind}`)
-        path.setAttribute('d', `M${x0} ${lt}L${x1} ${rt}L${x1} ${rb}L${x0} ${lb}Z`)
-        svg.appendChild(path)
+        const paint = (d, cls) => {
+          const path = document.createElementNS(ns, 'path')
+          path.setAttribute('class', cls)
+          path.setAttribute('d', d)
+          svg.appendChild(path)
+        }
+        // Both edges sit inside the divider's own hairline borders.
+        const bx0 = x0 + 1
+        const bx1 = x1 - 1
+        const w = bx1 - bx0
+        // IDEA's DiffDrawUtil.makeCurve: each side contributes its own
+        // [top, bottom]; an empty side is the 2px boundary where its lines
+        // would start, so the band tapers into it instead of ending square.
+        const extentOf = (side) =>
+          side.length === 0
+            ? [runTop - 1, runTop + 1]
+            : [Math.min(...side.map((box) => box.y0)), Math.max(...side.map((box) => box.y1))]
+        const [a0, a1] = extentOf(left)
+        const [b0, b1] = extentOf(right)
+        const c1 = bx0 + w * 0.3
+        const c2 = bx0 + w * 0.7
+        paint(
+          `M${bx0} ${a0}C${c1} ${a0} ${c2} ${b0} ${bx1} ${b0}L${bx1} ${b1}C${c2} ${b1} ${c1} ${a1} ${bx0} ${a1}Z`,
+          `gwb-diffband ${kind}`,
+        )
+        // The same-coloured midline keeps the band and its outline one shape.
+        const mid = (a0 + a1) / 2
+        const midB = (b0 + b1) / 2
+        paint(`M${bx0} ${mid}C${c1} ${mid} ${c2} ${midB} ${bx1} ${midB}`, `gwb-diffbandline ${kind}`)
       }
       layer.appendChild(svg)
     }

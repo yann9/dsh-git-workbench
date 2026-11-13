@@ -772,12 +772,19 @@ window.__ModuleLoader__.load({
 /* The divider track between the panes; the coloured shapes are painted on a
    layer above (see drawDiffBands) so a whole change run reads as one band. */
 .gwb-dc.con { position: relative; background: var(--gwb-diff-gap); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); }
-/* The band layer: one quadrilateral per change run, outlined in its own hue. */
+/* The band layer: one shape per change run, clamped to the divider column and
+   filled with the run's own colour, so it reads as the changed rows flowing
+   into each other rather than a decoration on the track. */
 .gwb-bandlayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
-.gwb-diffband { stroke-width: 1; }
-.gwb-diffband.add { fill: var(--gwb-diff-add-word); stroke: color-mix(in srgb, var(--gwb-diff-bar-add) 55%, transparent); }
-.gwb-diffband.del { fill: var(--gwb-diff-del-word); stroke: color-mix(in srgb, var(--gwb-diff-bar-del) 55%, transparent); }
-.gwb-diffband.mod { fill: url(#gwb-band-mod); stroke: color-mix(in srgb, var(--gwb-text) 20%, transparent); }
+.gwb-diffband { stroke: none; }
+.gwb-diffband.add { fill: var(--gwb-diff-add-word); }
+.gwb-diffband.del { fill: var(--gwb-diff-del-word); }
+.gwb-diffband.mod { fill: url(#gwb-band-mod); }
+/* The reference strokes the band's midline in the same colour, so the band and
+   its outline read as one shape. */
+.gwb-diffbandline { fill: none; stroke-width: 1; }
+.gwb-diffbandline.add { stroke: var(--gwb-diff-add-word); }
+.gwb-diffbandline.del { stroke: var(--gwb-diff-del-word); }
 .gwb-diffbands stop.del { stop-color: var(--gwb-diff-del-word); }
 .gwb-diffbands stop.add { stop-color: var(--gwb-diff-add-word); }
 /* The divider's action: one block, one arrow, centred in its band. It sits
