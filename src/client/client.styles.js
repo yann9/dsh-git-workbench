@@ -732,14 +732,14 @@ window.__ModuleLoader__.load({
 .gwb-foldrow[data-mode="side"] .gwb-foldspan.side-con { grid-column: 4; margin: 2px 0; border-radius: 0; background: var(--gwb-bg); border-left: 1px solid var(--gwb-border); border-right: 1px solid var(--gwb-border); cursor: default; }
 
 /* Side-by-side version labels, aligned to the row grid below them. */
-.gwb-diffside { display: grid; grid-template-columns: 46px 12px minmax(0,1fr) 18px 46px 12px minmax(0,1fr); align-items: center; height: 18px; background: var(--gwb-panel); border-bottom: 1px solid var(--gwb-border); position: sticky; top: 0; z-index: 5; }
+.gwb-diffside { display: grid; grid-template-columns: 46px 12px minmax(0,1fr) 26px 46px 12px minmax(0,1fr); align-items: center; height: 18px; background: var(--gwb-panel); border-bottom: 1px solid var(--gwb-border); position: sticky; top: 0; z-index: 5; }
 .gwb-diffside span { padding: 0 10px; font-size: 11px; font-family: var(--gwb-mono); color: var(--gwb-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The bridge cell must carry the same verticals as the .gwb-dc.con rows below. */
 .gwb-diffside .gwb-diffside-con { border-left: 1px solid var(--gwb-border); border-right: 1px solid var(--gwb-border); }
 .gwb-diffside .gwb-diffside-right { border-left: 1px solid var(--gwb-border); }
 
 .gwb-drow { display: grid; align-items: stretch; min-width: 0; scroll-margin-top: 72px; }
-.gwb-drow[data-mode="side"] { grid-template-columns: 46px 12px minmax(0,1fr) 18px 46px 12px minmax(0,1fr); }
+.gwb-drow[data-mode="side"] { grid-template-columns: 46px 12px minmax(0,1fr) 26px 46px 12px minmax(0,1fr); }
 .gwb-drow[data-mode="unified"] { grid-template-columns: 46px 46px 12px minmax(0,1fr); }
 .gwb-dc { min-height: 20px; line-height: 20px; min-width: 0; overflow: hidden; }
 /* IDEA keeps line numbers neutral; the coloured change bar carries the state. */
@@ -768,20 +768,26 @@ window.__ModuleLoader__.load({
 .gwb-dc.code.del { background: var(--gwb-diff-del-bg); }
 .gwb-dc.code.pad { background-color: var(--gwb-diff-gap); }
 
-/* The connector between the two panes: the visual "link" of a change pair. */
-.gwb-dc.con { background: var(--gwb-bg); border-left: 1px solid var(--gwb-border); border-right: 1px solid var(--gwb-border); }
-.gwb-dc.con.add { background: var(--gwb-diff-add-bg); }
-.gwb-dc.con.del { background: var(--gwb-diff-del-bg); }
-.gwb-dc.con.mod { background: linear-gradient(to right, var(--gwb-diff-del-bg), var(--gwb-diff-add-bg)); }
-.gwb-dc.con.pad { background: var(--gwb-diff-gap); }
+/* The connector between the two panes: the visual "link" of a change pair.
+   The fill lives on ::before so the slanted cap can clip it without clipping
+   the arrow button that sits on top. */
+.gwb-dc.con { position: relative; background: var(--gwb-bg); border-left: 1px solid var(--gwb-border); border-right: 1px solid var(--gwb-border); }
+.gwb-dc.con::before { content: ''; position: absolute; inset: 0; background: var(--gwb-bg); }
+.gwb-dc.con.add::before { background: var(--gwb-diff-add-bg); }
+.gwb-dc.con.del::before { background: var(--gwb-diff-del-bg); }
+.gwb-dc.con.mod::before { background: linear-gradient(to right, var(--gwb-diff-del-bg), var(--gwb-diff-add-bg)); }
+.gwb-dc.con.pad::before { background: var(--gwb-diff-gap); }
 /* The band's ends slant back to the context line above and below, so a run of
    changed rows reads as one shape instead of a stack of coloured cells. */
-.gwb-drow.gwb-change-start .gwb-dc.con { clip-path: polygon(0 0, 100% 100%, 0 100%); }
-.gwb-drow.gwb-change-end .gwb-dc.con { clip-path: polygon(100% 0, 0 100%, 100% 100%); }
+.gwb-drow.gwb-change-start .gwb-dc.con::before { clip-path: polygon(0 0, 100% 100%, 0 100%); }
+.gwb-drow.gwb-change-end .gwb-dc.con::before { clip-path: polygon(100% 0, 0 100%, 100% 100%); }
+/* The divider's action: one block, one arrow, centred in its band. */
+.gwb-diffarrow { position: absolute; top: 50%; left: 50%; z-index: 1; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--gwb-dim); font-size: 12px; line-height: 1; cursor: pointer; }
+.gwb-diffarrow:hover, .gwb-diffarrow:focus-visible { color: var(--gwb-text); background: var(--gwb-hover); outline: none; }
 /* Hovering a row lights the pair on both sides and the bridge between them. */
 .gwb-drow:hover .gwb-dc.code.add { background: color-mix(in srgb, var(--gwb-diff-add-word) 58%, var(--gwb-diff-add-bg)); }
 .gwb-drow:hover .gwb-dc.code.del { background: color-mix(in srgb, var(--gwb-diff-del-word) 58%, var(--gwb-diff-del-bg)); }
-.gwb-drow:hover .gwb-dc.con.add, .gwb-drow:hover .gwb-dc.con.del, .gwb-drow:hover .gwb-dc.con.mod { filter: saturate(1.3); }
+.gwb-drow:hover .gwb-dc.con.add::before, .gwb-drow:hover .gwb-dc.con.del::before, .gwb-drow:hover .gwb-dc.con.mod::before { filter: saturate(1.3); }
 .gwb-drow:hover .gwb-dc.ln { color: var(--gwb-text); }
 .gwb-dc.code .gwb-syn-kw { color: var(--gwb-syn-keyword); }
 .gwb-dc.code .gwb-syn-str { color: var(--gwb-syn-string); }

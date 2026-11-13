@@ -480,6 +480,20 @@ window.__ModuleLoader__.load({
         const right = pair.right?.line.type ?? 'context'
         return left !== 'context' || right !== 'context'
       })
+      // Each contiguous change run, so a row can tell whether it is the middle
+      // of its run — the divider arrow sits there.
+      const runOf = pairs.map(() => null)
+      for (let start = 0; start < pairs.length; ) {
+        if (!changeAt[start]) {
+          start += 1
+          continue
+        }
+        let end = start
+        while (end + 1 < pairs.length && changeAt[end + 1]) end += 1
+        const run = { start, end }
+        for (let index = start; index <= end; index += 1) runOf[index] = run
+        start = end + 1
+      }
       return pairs.map((pair, pairIndex) => {
         const leftKey = pair.left ? `${options.side}:${hunkIndex}:${pair.left.index}` : null
         const rightKey = pair.right ? `${options.side}:${hunkIndex}:${pair.right.index}` : null
@@ -529,11 +543,44 @@ window.__ModuleLoader__.load({
         // deletion, a blend for a replacement, plain between context rows. It
         // is what makes the two panes read as one comparison.
         const pairKind = !pair.left ? 'add' : !pair.right ? 'del' : pair.left.line.type === 'del' && pair.right.line.type === 'add' ? 'mod' : ''
-        const cells = [...leftCells, h('div', { key: `${pairIndex}-con`, className: `gwb-dc con${pairKind ? ` ${pairKind}` : ''}` }), ...rightCells]
         const kind = pair.left?.line?.type ?? pair.right?.line?.type
         const isChange = changeAt[pairIndex]
         const startsChange = isChange && (pairIndex === 0 || !changeAt[pairIndex - 1])
         const endsChange = isChange && (pairIndex === pairs.length - 1 || !changeAt[pairIndex + 1])
+        const run = runOf[pairIndex]
+        // One arrow per change run, centred in the divider: the whole block
+        // moves to the other revision, like CodeMirror's divider arrows.
+        const arrowHere = Boolean(run && options.blockAction && !options.readOnly && Math.floor((run.start + run.end) / 2) === pairIndex)
+        let runLines = null
+        if (arrowHere) {
+          runLines = []
+          for (let index = run.start; index <= run.end; index += 1) {
+            const item = pairs[index]
+            if (item.left && item.left.line.type !== 'context') runLines.push(item.left.index)
+            if (item.right && item.right.line.type !== 'context') runLines.push(item.right.index)
+          }
+        }
+        const con = h(
+          'div',
+          { key: `${pairIndex}-con`, className: `gwb-dc con${pairKind ? ` ${pairKind}` : ''}` },
+          arrowHere
+            ? h(
+                'button',
+                {
+                  className: 'gwb-diffarrow',
+                  type: 'button',
+                  title: options.blockTitle,
+                  'aria-label': options.blockTitle,
+                  onClick: (event) => {
+                    event.stopPropagation()
+                    options.blockAction({ hunk: hunkIndex, lines: runLines })
+                  },
+                },
+                options.blockArrow === 'right' ? '→' : '←',
+              )
+            : null,
+        )
+        const cells = [...leftCells, con, ...rightCells]
         const rowCls = `gwb-drow${selected ? ' selected' : ''}${kind === 'add' ? ' add-row' : kind === 'del' ? ' del-row' : ''}${startsChange ? ' gwb-change' : ''}${startsChange && !endsChange ? ' gwb-change-start' : ''}${endsChange && !startsChange ? ' gwb-change-end' : ''}`
         return h(
           'div',
@@ -1592,6 +1639,9 @@ window.__ModuleLoader__.load({
                   stageHint: tt('unstage.lines'),
                   hunkLabel: tt('unstage.hunk'),
                   hunkAction: (hunkIndex) => void stage({ file: entry.path, direction: 'unstage', mode: 'hunk', hunk: hunkIndex }),
+                  blockAction: (pick) => void stage({ file: entry.path, direction: 'unstage', mode: 'lines', selection: [pick] }),
+                  blockArrow: 'right',
+                  blockTitle: tt('diff.unstageBlock'),
                 }),
               ])
             : null,
@@ -1605,6 +1655,9 @@ window.__ModuleLoader__.load({
                   stageHint: tt('stage.lines'),
                   hunkLabel: tt('stage.hunk'),
                   hunkAction: (hunkIndex) => void stage({ file: entry.path, direction: 'stage', mode: 'hunk', hunk: hunkIndex }),
+                  blockAction: (pick) => void stage({ file: entry.path, direction: 'stage', mode: 'lines', selection: [pick] }),
+                  blockArrow: 'left',
+                  blockTitle: tt('diff.stageBlock'),
                 }),
               ])
             : null,
