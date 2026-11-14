@@ -56,8 +56,10 @@ window.__ModuleLoader__.load({
   --gwb-diff-del-bg: var(--dsw-alias-file-diff-deleted-bg, #fce6e2);
   --gwb-diff-del-word: color-mix(in srgb, var(--dsw-alias-file-diff-deleted-marker, #d5372f) 24%, var(--dsw-alias-file-diff-deleted-bg, #fce6e2));
   --gwb-diff-gap: var(--dsw-alias-bg-layer-2, #f7f8fa);
-  --gwb-diff-bar-add: var(--dsw-alias-file-diff-added-marker, #01a241);
-  --gwb-diff-bar-del: var(--dsw-alias-file-diff-deleted-marker, #d5372f);
+  /* IDEA's full change colours: changed lines tint their gutters with this,
+     while the code row takes the lighter --gwb-diff-*-bg tint. */
+  --gwb-diff-add-gutter: color-mix(in srgb, var(--gwb-add) 24%, var(--gwb-bg));
+  --gwb-diff-del-gutter: color-mix(in srgb, var(--gwb-del) 22%, var(--gwb-bg));
   /* Line numbers are text, so they owe the reader 4.5:1 — the host tertiary alone is 3.7. */
   --gwb-diff-ln: var(--gwb-dim);
 
@@ -742,17 +744,20 @@ window.__ModuleLoader__.load({
 .gwb-drow[data-mode="side"] { grid-template-columns: 46px 12px minmax(0,1fr) 26px 46px 12px minmax(0,1fr); }
 .gwb-drow[data-mode="unified"] { grid-template-columns: 46px 46px 12px minmax(0,1fr); }
 .gwb-dc { min-height: 21px; line-height: 21px; min-width: 0; overflow: hidden; }
-/* IDEA keeps line numbers neutral; the coloured change bar carries the state.
-   No rule between gutter and code — the gap alone separates them. */
+/* IDEA tints the gutter of a changed line instead of drawing a change bar, so
+   the number column and the stage gutter paint as one strip of the change
+   colour while the code row keeps the lighter tint. No rule between gutter
+   and code — the gap alone separates them. */
 .gwb-dc.ln { text-align: right; padding-right: 8px; color: var(--gwb-diff-ln); font-size: 11px; user-select: none; background: transparent; font-variant-numeric: tabular-nums; }
+.gwb-dc.ln.add { background: var(--gwb-diff-add-gutter); }
+.gwb-dc.ln.del { background: var(--gwb-diff-del-gutter); }
 .gwb-dc.ln.pad { background: var(--gwb-diff-gap); }
 .gwb-dc.bar { position: relative; background: transparent; user-select: none; }
-.gwb-dc.bar.add { cursor: pointer; background: linear-gradient(to right, var(--gwb-diff-bar-add) 3px, transparent 3px); }
-.gwb-dc.bar.del { cursor: pointer; background: linear-gradient(to right, var(--gwb-diff-bar-del) 3px, transparent 3px); }
-/* Hover/selection must repaint the gradient itself — a background-color under
-   a background-image is invisible. */
-.gwb-dc.bar.add:hover { background: linear-gradient(to right, var(--gwb-diff-bar-add) 3px, var(--gwb-hover) 3px); }
-.gwb-dc.bar.del:hover { background: linear-gradient(to right, var(--gwb-diff-bar-del) 3px, var(--gwb-hover) 3px); }
+.gwb-dc.bar.add { cursor: pointer; background: var(--gwb-diff-add-gutter); }
+.gwb-dc.bar.del { cursor: pointer; background: var(--gwb-diff-del-gutter); }
+/* Only a clickable gutter answers the pointer; the tint stays underneath. */
+.gwb-dc.bar.add:not(.inert):hover { background: linear-gradient(var(--gwb-hover), var(--gwb-hover)), var(--gwb-diff-add-gutter); }
+.gwb-dc.bar.del:not(.inert):hover { background: linear-gradient(var(--gwb-hover), var(--gwb-hover)), var(--gwb-diff-del-gutter); }
 .gwb-dc.bar.pad { background: var(--gwb-diff-gap); }
 .gwb-dc.code { padding: 0 10px; white-space: pre-wrap; overflow-wrap: break-word; }
 /* Unwrapped code only exists in the unified view: a split diff wraps, because
@@ -777,16 +782,16 @@ window.__ModuleLoader__.load({
    into each other rather than a decoration on the track. */
 .gwb-bandlayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .gwb-diffband { stroke: none; }
-.gwb-diffband.add { fill: var(--gwb-diff-add-word); }
-.gwb-diffband.del { fill: var(--gwb-diff-del-word); }
+.gwb-diffband.add { fill: var(--gwb-diff-add-gutter); }
+.gwb-diffband.del { fill: var(--gwb-diff-del-gutter); }
 .gwb-diffband.mod { fill: url(#gwb-band-mod); }
 /* The reference strokes the band's midline in the same colour, so the band and
    its outline read as one shape. */
 .gwb-diffbandline { fill: none; stroke-width: 1; }
-.gwb-diffbandline.add { stroke: var(--gwb-diff-add-word); }
-.gwb-diffbandline.del { stroke: var(--gwb-diff-del-word); }
-.gwb-diffbands stop.del { stop-color: var(--gwb-diff-del-word); }
-.gwb-diffbands stop.add { stop-color: var(--gwb-diff-add-word); }
+.gwb-diffbandline.add { stroke: var(--gwb-diff-add-gutter); }
+.gwb-diffbandline.del { stroke: var(--gwb-diff-del-gutter); }
+.gwb-diffbands stop.del { stop-color: var(--gwb-diff-del-gutter); }
+.gwb-diffbands stop.add { stop-color: var(--gwb-diff-add-gutter); }
 /* The divider's action: one block, one arrow, centred in its band. It sits
    above the band layer, so the shape runs behind it. */
 .gwb-diffarrow { position: absolute; top: 50%; left: 50%; z-index: 3; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--gwb-dim); line-height: 1; cursor: pointer; transition: background .12s ease, color .12s ease; }
@@ -847,8 +852,8 @@ window.__ModuleLoader__.load({
 .gwb-blame-code .gwb-syn-ann { color: var(--gwb-syn-annotation); }
 .gwb-blame-code .gwb-syn-fn { color: var(--gwb-syn-function); }
 .gwb-drow.selected .gwb-dc.code { background: var(--gwb-accent-soft); }
-.gwb-drow.selected .gwb-dc.bar.add { background: linear-gradient(to right, var(--gwb-diff-bar-add) 3px, var(--gwb-accent-soft) 3px); }
-.gwb-drow.selected .gwb-dc.bar.del { background: linear-gradient(to right, var(--gwb-diff-bar-del) 3px, var(--gwb-accent-soft) 3px); }
+.gwb-drow.selected .gwb-dc.bar.add,
+.gwb-drow.selected .gwb-dc.bar.del { background: var(--gwb-accent-soft); }
 .gwb-drow.selected .gwb-dc.ln { color: var(--gwb-accent-ink); background: var(--gwb-accent-soft); }
 /* ---- conflict (merge) view ---- */
 .gwb-merge { display: flex; flex-direction: column; min-height: 0; }
@@ -1447,7 +1452,6 @@ window.__ModuleLoader__.load({
 }
 /* A diff bar only stages where a click is wired up. */
 .gwb-dc.bar.inert { cursor: default; }
-.gwb-dc.bar.inert:hover { background: transparent; }
 /* Count pills all sit on the same ladder: small rects 4px, pills fully round. */
 .gwb-opchip, .gwb-merge-n, .gwb-console-code, .gwb-console-count { border-radius: 999px; }
 

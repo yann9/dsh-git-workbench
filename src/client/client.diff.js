@@ -264,11 +264,17 @@ window.__ModuleLoader__.load({
       return { additions, deletions }
     }
 
-    function cellNumber(value, extraClass) {
-      return h('div', { className: `gwb-dc ln${extraClass ? ` ${extraClass}` : ''}` }, value ?? '')
+    /** A cell state as a class: the change type tints a gutter, pad fills an empty side. */
+    const stateClass = (state) => (state === 'add' || state === 'del' || state === 'pad' ? ` ${state}` : '')
+
+    function cellNumber(value, state) {
+      return h('div', { className: `gwb-dc ln${stateClass(state)}` }, value ?? '')
     }
 
-    /** The change bar: 3px state stripe plus the line-staging click target. */
+    /**
+     * The stage gutter: the row's change tint, and the line-staging click target
+     * where a click is wired up.
+     */
     function cellBar({ type, cellKey, selectable, onToggle, hint }) {
       return h('div', {
         className: `gwb-dc bar${type === 'add' ? ' add' : type === 'del' ? ' del' : ''}${selectable ? '' : ' inert'}`,
@@ -560,8 +566,8 @@ window.__ModuleLoader__.load({
             'data-side': options.side,
             'data-file-index': options.fileIndex,
           },
-          cellNumber(line.oldLine),
-          cellNumber(line.newLine),
+          cellNumber(line.oldLine, line.type),
+          cellNumber(line.newLine, line.type),
           cellBar({ type: line.type, cellKey, selectable, onToggle: options.onToggle, hint: options.stageHint }),
           cellCode(line, { type: line.type, mark: wordOn ? (marks.get(index) ?? null) : null, lang: options.lang, cellKey, side: options.side, lineIndex: index, fileIndex: options.fileIndex }),
         )
@@ -643,7 +649,7 @@ window.__ModuleLoader__.load({
           const type = cell.line.type
           const number = type === 'del' ? cell.line.oldLine : type === 'add' ? cell.line.newLine : cell.line.newLine ?? cell.line.oldLine
           const selectable = !options.readOnly && type !== 'context'
-          bucket.push(cellNumber(number))
+          bucket.push(cellNumber(number, type))
           bucket.push(cellBar({ type, cellKey: slot === 'left' ? leftKey : rightKey, selectable, onToggle: options.onToggle, hint: options.stageHint }))
           bucket.push(
             cellCode(cell.line, {
@@ -2276,7 +2282,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { key, className: `gwb-drow${type === 'add' ? ' add-row' : type === 'del' ? ' del-row' : ''}`, 'data-mode': 'merge' },
-          cellNumber(number ?? null),
+          cellNumber(number ?? null, type),
           cellBar({ type, cellKey: key, selectable: false }),
           cellCode({ text }, { type, mark, lang }),
         )
@@ -2289,7 +2295,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { key, className: `gwb-drow${type === 'add' ? ' add-row' : type === 'del' ? ' del-row' : ''}`, 'data-mode': 'merge' },
-          cellNumber(null),
+          cellNumber(null, type),
           cellBar({ type, cellKey: key, selectable: false }),
           cellCode({ text }, { type, mark, lang }),
         )
