@@ -740,24 +740,29 @@ window.__ModuleLoader__.load({
 /* Collapsed unchanged run: a filled band inside each pane, chevron at the
    end — the IDE's "N unchanged lines" control, not another hunk rule. */
 .gwb-foldrow { background: var(--gwb-bg); }
-.gwb-foldspan { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; height: 24px; margin: 3px 8px; padding: 0 9px; min-width: 0; border-radius: 6px; background: color-mix(in srgb, var(--gwb-text) 5%, transparent); color: var(--gwb-faint); font-family: var(--dsw-font-ui-font-family, system-ui, sans-serif); font-size: 11px; line-height: 1; cursor: pointer; user-select: none; transition: background .12s ease, color .12s ease; }
+.gwb-foldspan { display: flex; align-items: center; gap: 8px; height: 24px; margin: 3px 8px; padding: 0 9px; min-width: 0; border-radius: 6px; background: color-mix(in srgb, var(--gwb-text) 5%, transparent); color: var(--gwb-faint); font-family: var(--dsw-font-ui-font-family, system-ui, sans-serif); font-size: 11px; line-height: 1; cursor: pointer; user-select: none; transition: background .12s ease, color .12s ease; }
+.gwb-foldrow .gwb-foldspan { grid-column: 1 / -1; }
 .gwb-foldspan:hover { color: var(--gwb-text); background: color-mix(in srgb, var(--gwb-text) 9%, transparent); }
 .gwb-foldspan:focus-visible { outline: 1px solid var(--gwb-accent); outline-offset: -1px; }
 .gwb-foldtext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gwb-foldchev { margin-left: auto; flex: none; display: inline-flex; opacity: .7; }
-.gwb-foldrow[data-mode="side"] .gwb-foldspan.side-left { grid-column: 1 / 4; }
-.gwb-foldrow[data-mode="side"] .gwb-foldspan.side-right { grid-column: 5 / 8; }
-.gwb-foldrow[data-mode="side"] .gwb-foldspan.side-con { grid-column: 4; margin: 3px 0; border-radius: 0; background: var(--gwb-diff-gap); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); cursor: default; }
 
-/* Side-by-side version labels, aligned to the row grid below them. */
-.gwb-diffside { display: grid; grid-template-columns: 46px 12px minmax(0,1fr) 26px 46px 12px minmax(0,1fr); align-items: center; height: 18px; background: var(--gwb-panel); border-bottom: 1px solid var(--gwb-border); position: sticky; top: 0; z-index: 5; }
+/* Side-by-side panes: each version lists only its own lines (IDEA's unpadded
+   panes), so the two columns drift where a chunk exists on one side only and
+   the divider bands carry the difference. The middle track is the divider. */
+.gwb-split { display: grid; grid-template-columns: minmax(0,1fr) 12px minmax(0,1fr); }
+.gwb-splitcol { display: flex; flex-direction: column; min-width: 0; }
+.gwb-splitdivider { background: var(--gwb-diff-track); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); }
+
+/* Version labels above the two panes, mapped onto the same split. */
+.gwb-diffside { display: grid; grid-template-columns: minmax(0,1fr) 12px minmax(0,1fr); align-items: center; height: 18px; background: var(--gwb-panel); border-bottom: 1px solid var(--gwb-border); position: sticky; top: 0; z-index: 5; }
 .gwb-diffside span { padding: 0 10px; font-size: 11px; font-family: var(--gwb-mono); color: var(--gwb-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The bridge cell is the divider track: tinted like the rows, ruled on both
+/* The bridge cell is the divider track: tinted like the panes, ruled on both
    edges, so the change bands read as shapes inside a column. */
-.gwb-diffside .gwb-diffside-con { background: var(--gwb-diff-gap); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); }
+.gwb-diffside .gwb-diffside-con { background: var(--gwb-diff-track); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); }
 
 .gwb-drow { display: grid; align-items: stretch; min-width: 0; scroll-margin-top: 72px; }
-.gwb-drow[data-mode="side"] { grid-template-columns: 46px 12px minmax(0,1fr) 26px 46px 12px minmax(0,1fr); }
+.gwb-drow[data-mode="side"] { position: relative; grid-template-columns: 46px 12px minmax(0,1fr); }
 .gwb-drow[data-mode="unified"] { grid-template-columns: 46px 46px 12px minmax(0,1fr); }
 .gwb-dc { min-height: 21px; line-height: 21px; min-width: 0; overflow: hidden; }
 /* IDEA tints the gutter of a changed line instead of drawing a change bar, so
@@ -786,19 +791,14 @@ window.__ModuleLoader__.load({
 .gwb-nowrap .gwb-turnfile .gwb-ovhead { width: var(--gwb-codew, 100%); min-width: 100%; }
 .gwb-dc.code.add { background: var(--gwb-diff-add-row); }
 .gwb-dc.code.del { background: var(--gwb-diff-del-row); }
-/* A chunk missing on this side is one thin rule at the boundary, in the
-   gutter colour — the reference's cm-diffGap marker — not a filled block. It
-   is painted on the band layer (see drawDiffBands) so it spans the pane. */
-.gwb-diffgap { stroke-width: 1; }
-.gwb-diffgap.add { stroke: var(--gwb-diff-add-gap); }
-.gwb-diffgap.del { stroke: var(--gwb-diff-del-gap); }
+/* A chunk missing from this pane is one rule at the boundary, in the change
+   colour — the reference's cm-diffGap marker. It takes no height of its own
+   (the rule overlays the boundary), so the pane keeps its own line flow. */
+.gwb-gapmark { height: 1px; margin-top: -1px; border-top: 1px solid var(--gwb-diff-add-gap); }
+.gwb-gapmark.del { border-top-color: var(--gwb-diff-del-gap); }
 
 /* The divider track between the panes; the coloured shapes are painted on a
    layer above (see drawDiffBands) so a whole change run reads as one band. */
-.gwb-dc.con { position: relative; background: var(--gwb-diff-track); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); }
-/* The band layer: one shape per change run, clamped to the divider column and
-   filled with the run's own colour, so it reads as the changed rows flowing
-   into each other rather than a decoration on the track. */
 .gwb-bandlayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .gwb-diffband { stroke: none; }
 .gwb-diffband.add { fill: var(--gwb-diff-add-band); }
@@ -811,9 +811,12 @@ window.__ModuleLoader__.load({
 .gwb-diffbandline.del { stroke: var(--gwb-diff-del-band); }
 .gwb-diffbands stop.del { stop-color: var(--gwb-diff-del-band); }
 .gwb-diffbands stop.add { stop-color: var(--gwb-diff-add-band); }
-/* The divider's action: one block, one arrow, centred in its band. It sits
-   above the band layer, so the shape runs behind it. */
-.gwb-diffarrow { position: absolute; top: 50%; left: 50%; z-index: 3; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--gwb-dim); line-height: 1; cursor: pointer; transition: background .12s ease, color .12s ease; }
+/* The divider's action: one block, one arrow, hanging from the pane that owns
+   the block into the divider track. It sits above the band layer, so the shape
+   runs behind it. */
+.gwb-diffarrow { position: absolute; top: 50%; z-index: 3; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--gwb-dim); line-height: 1; cursor: pointer; transition: background .12s ease, color .12s ease; }
+.gwb-drow[data-col="left"] > .gwb-diffarrow { right: -15px; }
+.gwb-drow[data-col="right"] > .gwb-diffarrow { left: -15px; }
 .gwb-diffarrow:hover, .gwb-diffarrow:focus-visible { color: var(--gwb-text); background: color-mix(in srgb, var(--gwb-bg) 78%, transparent); outline: none; }
 /* Hovering a row lights the pair on both sides. */
 .gwb-drow:hover .gwb-dc.code.add { background: color-mix(in srgb, var(--gwb-diff-add) 45%, var(--gwb-panel)); }

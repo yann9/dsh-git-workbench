@@ -264,8 +264,8 @@ window.__ModuleLoader__.load({
       return { additions, deletions }
     }
 
-    /** A cell state as a class: the change type tints a gutter, pad fills an empty side. */
-    const stateClass = (state) => (state === 'add' || state === 'del' || state === 'pad' ? ` ${state}` : '')
+    /** A cell state as a class: the change type tints the line number and gutter. */
+    const stateClass = (state) => (state === 'add' || state === 'del' ? ` ${state}` : '')
 
     function cellNumber(value, state) {
       return h('div', { className: `gwb-dc ln${stateClass(state)}` }, value ?? '')
@@ -372,43 +372,20 @@ window.__ModuleLoader__.load({
 
     /**
      * Paint the divider bands: one quadrilateral per change run, joining the
-     * rows changed on the left to the rows changed on the right. Rows are
-     * separate grids, so the shapes cannot be drawn in CSS — they are measured
-     * once per layout and placed on a layer above the rows.
+     * run's rows in the left pane to its rows in the right. The panes are
+     * independent (each lists only its own lines), so the two sides of a run
+     * almost never share a y range — the curve carries the difference, the way
+     * IDEA's DiffDrawUtil.makeCurve does. A side missing from the run has no
+     * rows at all; its boundary is the gap rule, widened to a 2px sliver.
      */
     function drawDiffBands(layer, body) {
       if (!layer || !body) return
       layer.textContent = ''
-      const rows = body.querySelectorAll('.gwb-drow[data-mode="side"]')
-      if (rows.length === 0) return
+      const blocks = body.querySelectorAll('.gwb-split')
+      if (blocks.length === 0) return
       const origin = body.getBoundingClientRect()
       const offsetX = origin.left - body.scrollLeft
       const offsetY = origin.top - body.scrollTop
-      const runs = []
-      let current = null
-      for (const row of rows) {
-        const con = row.querySelector('.gwb-dc.con')
-        if (!con || !row.classList.contains('gwb-change')) {
-          current = null
-          continue
-        }
-        const key = `${row.dataset.side}:${row.dataset.hunk}`
-        if (!current || current.key !== key) {
-          current = { key, boxes: [] }
-          runs.push(current)
-        }
-        const rect = con.getBoundingClientRect()
-        current.boxes.push({
-          add: con.classList.contains('add'),
-          del: con.classList.contains('del'),
-          mod: con.classList.contains('mod'),
-          x0: rect.left - offsetX,
-          x1: rect.right - offsetX,
-          y0: rect.top - offsetY,
-          y1: rect.bottom - offsetY,
-        })
-      }
-      if (runs.length === 0) return
       const ns = 'http://www.w3.org/2000/svg'
       const contentW = Math.max(1, Math.ceil(body.scrollWidth))
       const svg = document.createElementNS(ns, 'svg')
@@ -432,62 +409,80 @@ window.__ModuleLoader__.load({
       }
       defs.appendChild(gradient)
       svg.appendChild(defs)
-      for (const run of runs) {
-        const boxes = run.boxes
-        const left = boxes.filter((box) => box.del || box.mod)
-        const right = boxes.filter((box) => box.add || box.mod)
-        const x0 = Math.min(...boxes.map((box) => box.x0))
-        const x1 = Math.max(...boxes.map((box) => box.x1))
-        const runTop = Math.min(...boxes.map((box) => box.y0))
-        const kind = boxes.some((box) => box.mod) ? 'mod' : right.length ? 'add' : 'del'
-        const paint = (d, cls) => {
-          const path = document.createElementNS(ns, 'path')
-          path.setAttribute('class', cls)
-          path.setAttribute('d', d)
-          svg.appendChild(path)
-        }
+      const paint = (d, cls) => {
+        const path = document.createElementNS(ns, 'path')
+        path.setAttribute('class', cls)
+        path.setAttribute('d', d)
+        svg.appendChild(path)
+      }
+      for (const block of blocks) {
+        const divider = block.querySelector('.gwb-splitdivider')
+        if (!divider) continue
+        const rect = divider.getBoundingClientRect()
         // Both edges sit inside the divider's own hairline borders.
-        const bx0 = x0 + 1
-        const bx1 = x1 - 1
+        const bx0 = rect.left - offsetX + 1
+        const bx1 = rect.right - offsetX - 1
         const w = bx1 - bx0
-        // IDEA's DiffDrawUtil.makeCurve: each side contributes its own
-        // [top, bottom]; an empty side is the 2px boundary where its lines
-        // would start, so the band tapers into it instead of ending square.
-        const extentOf = (side) =>
-          side.length === 0
-            ? [runTop - 1, runTop + 1]
-            : [Math.min(...side.map((box) => box.y0)), Math.max(...side.map((box) => box.y1))]
-        const [a0, a1] = extentOf(left)
-        const [b0, b1] = extentOf(right)
-        // A side with no lines in the chunk is marked by one thin rule at the
-        // boundary (IDEA's cm-diffGap), not by a filled block: the missing side
-        // keeps the pane surface and only says where its lines would sit.
-        if (left.length === 0) paint(`M0 ${runTop + 0.5}H${bx0}`, `gwb-diffgap ${kind}`)
-        else if (right.length === 0) paint(`M${bx1} ${runTop + 0.5}H${contentW}`, `gwb-diffgap ${kind}`)
-        const c1 = bx0 + w * 0.3
-        const c2 = bx0 + w * 0.7
-        paint(
-          `M${bx0} ${a0}C${c1} ${a0} ${c2} ${b0} ${bx1} ${b0}L${bx1} ${b1}C${c2} ${b1} ${c1} ${a1} ${bx0} ${a1}Z`,
-          `gwb-diffband ${kind}`,
-        )
-        // The same-coloured midline keeps the band and its outline one shape.
-        const mid = (a0 + a1) / 2
-        const midB = (b0 + b1) / 2
-        paint(`M${bx0} ${mid}C${c1} ${mid} ${c2} ${midB} ${bx1} ${midB}`, `gwb-diffbandline ${kind}`)
+        const runs = new Map()
+        for (const row of block.querySelectorAll('.gwb-drow[data-run]')) {
+          const key = row.dataset.run
+          let run = runs.get(key)
+          if (!run) {
+            run = { left: [], right: [] }
+            runs.set(key, run)
+          }
+          const box = row.getBoundingClientRect()
+          run[row.dataset.col === 'left' ? 'left' : 'right'].push({ y0: box.top - offsetY, y1: box.bottom - offsetY })
+        }
+        // The missing side's boundary: its gap rule marks where its lines would sit.
+        for (const marker of block.querySelectorAll('.gwb-gapmark[data-run]')) {
+          const run = runs.get(marker.dataset.run)
+          if (!run) continue
+          const y = marker.getBoundingClientRect().top - offsetY
+          if (marker.closest('.gwb-splitcol')?.dataset.col === 'left') run.gapLeft = y
+          else run.gapRight = y
+        }
+        for (const run of runs.values()) {
+          const { left, right } = run
+          const kind = left.length === 0 ? 'add' : right.length === 0 ? 'del' : 'mod'
+          const extentOf = (boxes, gap) =>
+            boxes.length === 0
+              ? [gap ?? 0, gap ?? 0]
+              : [Math.min(...boxes.map((box) => box.y0)), Math.max(...boxes.map((box) => box.y1))]
+          let [a0, a1] = extentOf(left, run.gapLeft)
+          let [b0, b1] = extentOf(right, run.gapRight)
+          // An empty side is a 2px sliver on its boundary, not a zero-height shape.
+          if (a1 - a0 < 2) [a0, a1] = [a0 - 1, a0 + 1]
+          if (b1 - b0 < 2) [b0, b1] = [b0 - 1, b0 + 1]
+          const c1 = bx0 + w * 0.3
+          const c2 = bx0 + w * 0.7
+          paint(
+            `M${bx0} ${a0}C${c1} ${a0} ${c2} ${b0} ${bx1} ${b0}L${bx1} ${b1}C${c2} ${b1} ${c1} ${a1} ${bx0} ${a1}Z`,
+            `gwb-diffband ${kind}`,
+          )
+          // The same-coloured midline keeps the band and its outline one shape.
+          const mid = (a0 + a1) / 2
+          const midB = (b0 + b1) / 2
+          paint(`M${bx0} ${mid}C${c1} ${mid} ${c2} ${midB} ${bx1} ${midB}`, `gwb-diffbandline ${kind}`)
+        }
       }
       layer.appendChild(svg)
     }
 
+    /**
+     * A collapsed unchanged run: one filled band inside the single column, with
+     * the chevron at the far end — the IDE's "N unchanged lines" control, not
+     * another hunk rule. Split mode gets one such band per pane (columnFold).
+     */
     function foldBand(segment, options) {
-      // The IDE draws the collapsed run as a filled band inside each pane, with
-      // the chevron at the far end; a band that spans the divider reads as one
-      // more hunk rule instead of a control.
-      const band = (key, extra) =>
+      return h(
+        'div',
+        { key: `fold:${segment.key}`, className: 'gwb-drow gwb-foldrow', 'data-mode': 'unified' },
         h(
           'div',
           {
-            key,
-            className: `gwb-foldspan${extra ? ` ${extra}` : ''}`,
+            key: 'band',
+            className: 'gwb-foldspan',
             title: tt('diff.expand'),
             role: 'button',
             tabIndex: 0,
@@ -500,20 +495,29 @@ window.__ModuleLoader__.load({
           },
           h('span', { className: 'gwb-foldtext' }, tt('diff.foldedLines', { count: segment.count })),
           h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }, chevronIcon('down')),
-        )
-      if (options.sideBySide) {
-        return h(
-          'div',
-          { key: `fold:${segment.key}`, className: 'gwb-drow gwb-foldrow', 'data-mode': 'side' },
-          band('left', 'side-left'),
-          h('div', { key: 'con', className: 'gwb-foldspan side-con', 'aria-hidden': 'true' }),
-          band('right', 'side-right'),
-        )
-      }
+        ),
+      )
+    }
+
+    /** The same folded run inside one pane of the split view. */
+    function columnFold(segment, options, col) {
       return h(
         'div',
-        { key: `fold:${segment.key}`, className: 'gwb-drow gwb-foldrow', 'data-mode': 'unified' },
-        band('only', ''),
+        {
+          key: `fold:${col}:${segment.key}`,
+          className: 'gwb-foldspan gwb-foldcol',
+          title: tt('diff.expand'),
+          role: 'button',
+          tabIndex: 0,
+          onClick: () => options.onToggleFold && options.onToggleFold(segment.key),
+          onKeyDown: (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            options.onToggleFold && options.onToggleFold(segment.key)
+          },
+        },
+        h('span', { className: 'gwb-foldtext' }, tt('diff.foldedLines', { count: segment.count })),
+        h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }, chevronIcon('down')),
       )
     }
 
@@ -580,13 +584,93 @@ window.__ModuleLoader__.load({
       })
     }
 
-    function sideRows(items, hunkIndex, options) {
-      const pairs = []
+    /**
+     * One line of one pane. A side-by-side pane lists only its own version's
+     * lines, so the row carries one line number and never a placeholder.
+     */
+    function sideRow(entry, col, hunkIndex, options, extra) {
+      const { line } = entry
+      const type = line.type
+      const cellKey = `${options.side}:${hunkIndex}:${entry.index}`
+      const selected = !options.readOnly && options.selection.has(cellKey)
+      const selectable = !options.readOnly && type !== 'context'
+      const number =
+        type === 'del' ? line.oldLine : type === 'add' ? line.newLine : col === 'left' ? line.oldLine : (line.newLine ?? line.oldLine)
+      const rowCls = `gwb-drow${selected ? ' selected' : ''}${type === 'add' ? ' add-row' : type === 'del' ? ' del-row' : ''}${extra?.change ? ' gwb-change' : ''}`
+      const cells = [
+        cellNumber(number, type),
+        cellBar({ type, cellKey, selectable, onToggle: options.onToggle, hint: options.stageHint }),
+        cellCode(line, {
+          type,
+          mark: extra?.mark ?? null,
+          lang: options.lang,
+          cellKey,
+          side: options.side,
+          lineIndex: entry.index,
+          fileIndex: options.fileIndex,
+        }),
+      ]
+      // One arrow per change run, on the pane that owns the run's lines and
+      // overhanging into the divider: the whole block moves to the other side.
+      if (extra?.arrow) {
+        cells.push(
+          h(
+            'button',
+            {
+              key: 'arrow',
+              className: 'gwb-diffarrow',
+              type: 'button',
+              title: extra.blockTitle,
+              'aria-label': extra.blockTitle,
+              onClick: (event) => {
+                event.stopPropagation()
+                extra.blockAction({ hunk: hunkIndex, lines: extra.runLines })
+              },
+            },
+            chevronIcon(options.blockArrow),
+          ),
+        )
+      }
+      return h(
+        'div',
+        {
+          key: cellKey,
+          className: rowCls,
+          'data-mode': 'side',
+          'data-col': col,
+          'data-run': extra?.runKey,
+          'data-hunk': hunkIndex,
+          'data-line': entry.index,
+          'data-side': options.side,
+          'data-file-index': options.fileIndex,
+        },
+        cells,
+      )
+    }
+
+    /** Where the other pane has lines this one lacks: one rule, no blank rows. */
+    function gapMark(runKey, kind) {
+      return h('div', {
+        key: `gap:${runKey}`,
+        className: `gwb-gapmark ${kind}`,
+        'data-run': runKey,
+        'aria-hidden': 'true',
+      })
+    }
+
+    /**
+     * Both panes of a side-by-side hunk, as two independent columns (IDEA's
+     * unpadded panes). A chunk that exists on only one side leaves no blank
+     * rows on the other: the missing pane keeps its own lines and gets a single
+     * gap rule where the counterpart's lines would sit, so line numbers stay
+     * true to each file. drawDiffBands() bridges the two columns per run.
+     */
+    function sideColumns(items, hunkIndex, options, runPrefix = String(hunkIndex)) {
+      const slots = []
       let cursor = 0
       while (cursor < items.length) {
-        const item = items[cursor]
-        if (item.line.type === 'context') {
-          pairs.push({ left: item, right: item })
+        if (items[cursor].line.type === 'context') {
+          slots.push({ item: items[cursor] })
           cursor += 1
           continue
         }
@@ -600,130 +684,90 @@ window.__ModuleLoader__.load({
           adds.push(items[cursor])
           cursor += 1
         }
-        const count = Math.max(dels.length, adds.length)
-        for (let i = 0; i < count; i += 1) pairs.push({ left: dels[i] ?? null, right: adds[i] ?? null })
+        slots.push({ dels, adds })
       }
-      // A change run's first and last rows get a slanted divider cap, the way
-      // CodeMirror's bands bridge two ranges of different length.
-      const changeAt = pairs.map((pair) => {
-        const left = pair.left?.line.type ?? 'context'
-        const right = pair.right?.line.type ?? 'context'
-        return left !== 'context' || right !== 'context'
-      })
-      // Each contiguous change run, so a row can tell whether it is the middle
-      // of its run — the divider arrow sits there.
-      const runOf = pairs.map(() => null)
-      for (let start = 0; start < pairs.length; ) {
-        if (!changeAt[start]) {
-          start += 1
+      const wordOn = options.highlight !== 'line' && options.highlight !== 'none'
+      const left = []
+      const right = []
+      let runIndex = 0
+      for (const slot of slots) {
+        if (slot.item) {
+          left.push(sideRow(slot.item, 'left', hunkIndex, options, null))
+          right.push(sideRow(slot.item, 'right', hunkIndex, options, null))
           continue
         }
-        let end = start
-        while (end + 1 < pairs.length && changeAt[end + 1]) end += 1
-        const run = { start, end }
-        for (let index = start; index <= end; index += 1) runOf[index] = run
-        start = end + 1
-      }
-      return pairs.map((pair, pairIndex) => {
-        const leftKey = pair.left ? `${options.side}:${hunkIndex}:${pair.left.index}` : null
-        const rightKey = pair.right ? `${options.side}:${hunkIndex}:${pair.right.index}` : null
-        const selected =
-          !options.readOnly && ((leftKey && options.selection.has(leftKey)) || (rightKey && options.selection.has(rightKey)))
-
-        // Word-level diff for a replacement pair (JetBrains' intra-line
-        // highlight): mark only the words that actually changed.
-        let leftMark = null
-        let rightMark = null
-        if (options.highlight !== 'line' && options.highlight !== 'none' && pair.left && pair.right && pair.left.line.text !== pair.right.line.text) {
-          const ranges = wordDiffRanges(pair.left.line.text, pair.right.line.text)
-          if (ranges.left.length > 0) leftMark = ranges.left
-          if (ranges.right.length > 0) rightMark = ranges.right
-        }
-
-        const leftCells = []
-        const rightCells = []
-        for (const [slot, cell, bucket] of [
-          ['left', pair.left, leftCells],
-          ['right', pair.right, rightCells],
-        ]) {
-          if (!cell) {
-            bucket.push(cellNumber(null, 'pad'))
-            bucket.push(h('div', { key: `${pairIndex}-${slot}-bar`, className: 'gwb-dc bar pad' }))
-            bucket.push(h('div', { key: `${pairIndex}-${slot}-code`, className: 'gwb-dc code pad' }))
-            continue
+        const { dels, adds } = slot
+        // Run keys must be unique per hunk: a hunk is rendered as several
+        // segments (fold bands split it), and drawDiffBands groups by this key.
+        const runKey = `${runPrefix}-${runIndex}`
+        runIndex += 1
+        // Word-level diff for a replacement run (JetBrains' intra-line
+        // highlight): pair a deletion with the addition that replaces it.
+        const leftMark = new Map()
+        const rightMark = new Map()
+        if (wordOn) {
+          for (let i = 0; i < Math.min(dels.length, adds.length); i += 1) {
+            if (dels[i].line.text === adds[i].line.text) continue
+            const ranges = wordDiffRanges(dels[i].line.text, adds[i].line.text)
+            if (ranges.left.length > 0) leftMark.set(dels[i].index, ranges.left)
+            if (ranges.right.length > 0) rightMark.set(adds[i].index, ranges.right)
           }
-          const type = cell.line.type
-          const number = type === 'del' ? cell.line.oldLine : type === 'add' ? cell.line.newLine : cell.line.newLine ?? cell.line.oldLine
-          const selectable = !options.readOnly && type !== 'context'
-          bucket.push(cellNumber(number, type))
-          bucket.push(cellBar({ type, cellKey: slot === 'left' ? leftKey : rightKey, selectable, onToggle: options.onToggle, hint: options.stageHint }))
-          bucket.push(
-            cellCode(cell.line, {
-              type,
-              mark: slot === 'left' ? leftMark : rightMark,
-              lang: options.lang,
-              cellKey: slot === 'left' ? leftKey : rightKey,
-              side: options.side,
-              lineIndex: cell.index,
-              fileIndex: options.fileIndex,
+        }
+        // The arrow sits on the pane that owns the run's lines, centred in it.
+        const host = adds.length > 0 ? 'right' : 'left'
+        const hostCount = adds.length > 0 ? adds.length : dels.length
+        const arrowAt = Math.floor((hostCount - 1) / 2)
+        const runLines = [...dels, ...adds].map((entry) => entry.index)
+        const fields = { runKey, runLines, blockAction: options.blockAction, blockTitle: options.blockTitle }
+        if (dels.length === 0) left.push(gapMark(runKey, 'add'))
+        if (adds.length === 0) right.push(gapMark(runKey, 'del'))
+        dels.forEach((entry, i) =>
+          left.push(
+            sideRow(entry, 'left', hunkIndex, options, {
+              ...fields,
+              mark: leftMark.get(entry.index) ?? null,
+              change: host === 'left' && i === 0,
+              arrow: host === 'left' && i === arrowAt,
             }),
-          )
-        }
-        // The centre gutter bridges the pair: green for an addition, red for a
-        // deletion, a blend for a replacement, plain between context rows. It
-        // is what makes the two panes read as one comparison.
-        const pairKind = !pair.left ? 'add' : !pair.right ? 'del' : pair.left.line.type === 'del' && pair.right.line.type === 'add' ? 'mod' : ''
-        const kind = pair.left?.line?.type ?? pair.right?.line?.type
-        const isChange = changeAt[pairIndex]
-        const run = runOf[pairIndex]
-        // One arrow per change run, centred in the divider: the whole block
-        // moves to the other revision, like CodeMirror's divider arrows.
-        const arrowHere = Boolean(run && options.blockAction && !options.readOnly && Math.floor((run.start + run.end) / 2) === pairIndex)
-        let runLines = null
-        if (arrowHere) {
-          runLines = []
-          for (let index = run.start; index <= run.end; index += 1) {
-            const item = pairs[index]
-            if (item.left && item.left.line.type !== 'context') runLines.push(item.left.index)
-            if (item.right && item.right.line.type !== 'context') runLines.push(item.right.index)
-          }
-        }
-        const con = h(
-          'div',
-          { key: `${pairIndex}-con`, className: `gwb-dc con${pairKind ? ` ${pairKind}` : ''}` },
-          arrowHere
-            ? h(
-                'button',
-                {
-                  className: 'gwb-diffarrow',
-                  type: 'button',
-                  title: options.blockTitle,
-                  'aria-label': options.blockTitle,
-                  onClick: (event) => {
-                    event.stopPropagation()
-                    options.blockAction({ hunk: hunkIndex, lines: runLines })
-                  },
-                },
-                chevronIcon(options.blockArrow),
-              )
-            : null,
+          ),
         )
-        const cells = [...leftCells, con, ...rightCells]
-        const rowCls = `gwb-drow${selected ? ' selected' : ''}${kind === 'add' ? ' add-row' : kind === 'del' ? ' del-row' : ''}${isChange ? ' gwb-change' : ''}`
-        return h(
-          'div',
-          {
-            key: `${leftKey ?? ''}|${rightKey ?? ''}|${pairIndex}`,
-            className: rowCls,
-            'data-mode': 'side',
-            'data-hunk': hunkIndex,
-            'data-line': pair.left?.index ?? pair.right?.index,
-            'data-side': options.side,
-            'data-file-index': options.fileIndex,
-          },
-          cells,
+        adds.forEach((entry, i) =>
+          right.push(
+            sideRow(entry, 'right', hunkIndex, options, {
+              ...fields,
+              mark: rightMark.get(entry.index) ?? null,
+              change: host === 'right' && i === 0,
+              arrow: host === 'right' && i === arrowAt,
+            }),
+          ),
         )
-      })
+      }
+      return { left, right }
+    }
+
+    /** One hunk as two pane columns joined by the divider track. */
+    function sideBlock(hunk, hunkIndex, options) {
+      const left = []
+      const right = []
+      let segmentIndex = 0
+      for (const segment of foldSegments(hunk.lines, hunkIndex, options)) {
+        if (segment.type === 'fold') {
+          left.push(columnFold(segment, options, 'left'))
+          right.push(columnFold(segment, options, 'right'))
+          continue
+        }
+        const columns = sideColumns(segment.items, hunkIndex, options, `${hunkIndex}.${segmentIndex}`)
+        segmentIndex += 1
+        left.push(...columns.left)
+        right.push(...columns.right)
+      }
+      return h(
+        'div',
+        { key: `side${hunkIndex}`, className: 'gwb-split', 'data-hunk': hunkIndex },
+        h('div', { key: 'l', className: 'gwb-splitcol left', 'data-col': 'left' }, left),
+        h('div', { key: 'd', className: 'gwb-splitdivider', 'aria-hidden': 'true' }),
+        h('div', { key: 'r', className: 'gwb-splitcol right', 'data-col': 'right' }, right),
+      )
     }
 
     /** Number of change blocks (not hunks) — the IDE's "N changes" counter. */
@@ -758,12 +802,16 @@ window.__ModuleLoader__.load({
       // its one-line band was a stray rule above line 1. Its action is the
       // section's action anyway, so the band goes.
       const rows = solo && hidden === 0 && !hunk.section ? [] : [header]
+      if (options.sideBySide) {
+        rows.push(sideBlock(hunk, hunkIndex, options))
+        return rows
+      }
       for (const segment of foldSegments(hunk.lines, hunkIndex, options)) {
         if (segment.type === 'fold') {
           rows.push(foldBand(segment, options))
           continue
         }
-        rows.push(...(options.sideBySide ? sideRows(segment.items, hunkIndex, options) : unifiedRows(segment.items, hunkIndex, options)))
+        rows.push(...unifiedRows(segment.items, hunkIndex, options))
       }
       return rows
     }
@@ -781,12 +829,8 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         { key, className: 'gwb-diffside' },
-        h('span', null),
-        h('span', null),
         h('span', { className: 'gwb-diffside-left' }, labels.left),
         h('span', { className: 'gwb-diffside-con' }),
-        h('span', null),
-        h('span', null),
         h('span', { className: 'gwb-diffside-right' }, labels.right),
       )
     }
@@ -1266,7 +1310,11 @@ window.__ModuleLoader__.load({
             if (Math.abs(scroller.scrollTop - jumpScroll.current) <= 1) return
             jumpScroll.current = -1
           }
-          const heads = view.querySelectorAll('.gwb-change')
+          // Two panes share one scroller but not one row grid: document order
+          // interleaves the columns, so order the heads by where they sit.
+          const heads = [...view.querySelectorAll('.gwb-change')].sort(
+            (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top,
+          )
           if (heads.length === 0) {
             changeCursor.current = -1
             return
@@ -1314,7 +1362,11 @@ window.__ModuleLoader__.load({
         if (!mode || !payloadSettled) return
         pendingLand.current = null
         const body = bodyRef.current
-        const heads = body ? [...body.querySelectorAll('.gwb-change')] : []
+        const heads = body
+          ? [...body.querySelectorAll('.gwb-change')].sort(
+              (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top,
+            )
+          : []
         if (heads.length === 0) return
         const at = mode === 'last' ? heads.length - 1 : 0
         changeCursor.current = at
@@ -1584,7 +1636,10 @@ window.__ModuleLoader__.load({
       function changeHeads(side) {
         const node = bodyRef.current
         if (!node) return []
-        return [...node.querySelectorAll(`.gwb-change${side ? `[data-side="${side}"]` : ''}`)]
+        // The panes are separate columns, so sort by position, not by DOM order.
+        return [...node.querySelectorAll(`.gwb-change${side ? `[data-side="${side}"]` : ''}`)].sort(
+          (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top,
+        )
       }
 
       function currentChange(side) {
@@ -2572,6 +2627,6 @@ window.__ModuleLoader__.load({
       const Body = target.mode === 'merge' ? MergeView : DiffView
       return h(Safe, null, h(Body, { target, sessionDir, canClose: true, onClose: closeDiffView }))
     }
-    return { diffStatsOf, highlightTokens, langOf, lineDiffSpans, wordDiffRanges, unifiedMarks, foldSegments, countChanges, unifiedRows, sideRows, hunkBlock, DiffView, MergeView, GitDiffViewBody }
+    return { diffStatsOf, highlightTokens, langOf, lineDiffSpans, wordDiffRanges, unifiedMarks, foldSegments, countChanges, unifiedRows, sideColumns, sideBlock, hunkBlock, DiffView, MergeView, GitDiffViewBody }
   },
 })

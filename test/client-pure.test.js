@@ -979,6 +979,59 @@ test('foldSegments collapses long unchanged runs and countChanges counts blocks'
   assert.equal(diff.countChanges([{ lines }]), 1)
 })
 
+test('side-by-side panes list only their own lines, one number each', async () => {
+  const { diff } = await loadClient()
+  const options = { side: 'unstaged', selection: new Set(), readOnly: true, lang: 'clike', fileIndex: 0, highlight: 'word' }
+  const items = [
+    { line: { type: 'context', text: 'same', oldLine: 1, newLine: 1 }, index: 0 },
+    { line: { type: 'del', text: 'const old = 1', oldLine: 2 }, index: 1 },
+    { line: { type: 'add', text: 'const next = 1', newLine: 2 }, index: 2 },
+  ]
+  const { left, right } = diff.sideColumns(items, 0, options)
+  // chunk objects live in a vm realm, so normalise before a strict compare
+  const plain = (value) => JSON.parse(JSON.stringify(value))
+
+  // no placeholder rows: the left pane never renders the addition and the
+  // right pane never renders the deletion
+  assert.deepEqual(plain(left.map((row) => row.props['data-col'])), ['left', 'left'])
+  assert.deepEqual(plain(right.map((row) => row.props['data-col'])), ['right', 'right'])
+  assert.deepEqual(plain(left.map((row) => row.props['data-line'])), [0, 1])
+  assert.deepEqual(plain(right.map((row) => row.props['data-line'])), [0, 2])
+
+  // one line-number cell per row, taken from that pane's own version
+  const number = (row) => row.children[0][0].children[0]
+  assert.deepEqual(plain(left.map(number)), [1, 2])
+  assert.deepEqual(plain(right.map(number)), [1, 2])
+
+  // the run is addressed once (data-run), and its change head sits on the pane
+  // that owns the changed lines, so the change counter does not double
+  assert.equal(left[1].props['data-run'], '0-0')
+  assert.equal(right[1].props['data-run'], '0-0')
+  assert.equal(left[0].props['data-run'], undefined)
+  assert.doesNotMatch(left[1].props.className, /gwb-change/)
+  assert.match(right[1].props.className, /gwb-change/)
+})
+
+test('a one-sided change leaves the other pane a gap rule, not blank rows', async () => {
+  const { diff } = await loadClient()
+  const options = { side: 'unstaged', selection: new Set(), readOnly: true, lang: 'clike', fileIndex: 0, highlight: 'line' }
+
+  const added = diff.sideColumns([{ line: { type: 'add', text: 'fresh()', newLine: 3 }, index: 0 }], 1, options)
+  assert.equal(added.left.length, 1)
+  assert.match(added.left[0].props.className, /gwb-gapmark\b/)
+  assert.match(added.left[0].props.className, /\badd\b/)
+  assert.equal(added.left[0].props['data-run'], '1-0')
+  assert.equal(added.right.length, 1)
+  assert.match(added.right[0].props.className, /gwb-change/)
+
+  const removed = diff.sideColumns([{ line: { type: 'del', text: 'gone()', oldLine: 4 }, index: 0 }], 1, options)
+  assert.equal(removed.right.length, 1)
+  assert.match(removed.right[0].props.className, /gwb-gapmark\b/)
+  assert.match(removed.right[0].props.className, /\bdel\b/)
+  assert.equal(removed.left.length, 1)
+  assert.match(removed.left[0].props.className, /gwb-change/)
+})
+
 test('GraphSvg renders a row without missing globals', async () => {
   // Regression: LANE_COLORS was dropped by the chunk split and only blew up in
   // the browser, where the log pane crashed on the first commit row.
