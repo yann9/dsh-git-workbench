@@ -1340,8 +1340,12 @@ window.__ModuleLoader__.load({
           // though it cannot reach the top line.
           const max = scroller.scrollHeight - scroller.clientHeight
           if (max > 0 && max - scroller.scrollTop <= 1) current = heads.length - 1
+          // Above the first change the reader is on it, not before the file:
+          // otherwise the counter says 1/N while the cursor sits at -1, and the
+          // first jump leaves it where it was.
+          if (current < 0) current = 0
           changeCursor.current = current
-          setActiveHunk(current < 0 ? 0 : current)
+          setActiveHunk(current)
         }
         const onScroll = () => {
           if (timer === 0) timer = window.setTimeout(measure, 16)
