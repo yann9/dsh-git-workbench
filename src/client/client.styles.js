@@ -52,14 +52,25 @@ window.__ModuleLoader__.load({
   /* Diff surface — derived from the host's own design tokens (they flip with
    * the theme, so no per-theme overrides are needed here). */
   --gwb-diff-add-bg: var(--dsw-alias-file-diff-added-bg, #e6f4e7);
-  --gwb-diff-add-word: color-mix(in srgb, var(--dsw-alias-file-diff-added-marker, #01a241) 26%, var(--dsw-alias-file-diff-added-bg, #e6f4e7));
   --gwb-diff-del-bg: var(--dsw-alias-file-diff-deleted-bg, #fce6e2);
-  --gwb-diff-del-word: color-mix(in srgb, var(--dsw-alias-file-diff-deleted-marker, #d5372f) 24%, var(--dsw-alias-file-diff-deleted-bg, #fce6e2));
   --gwb-diff-gap: var(--dsw-alias-bg-layer-2, #f7f8fa);
-  /* IDEA's full change colours: changed lines tint their gutters with this,
-     while the code row takes the lighter --gwb-diff-*-bg tint. */
-  --gwb-diff-add-gutter: color-mix(in srgb, var(--gwb-add) 24%, var(--gwb-bg));
-  --gwb-diff-del-gutter: color-mix(in srgb, var(--gwb-del) 22%, var(--gwb-bg));
+  /* IDEA's ladder: its full diff colour is the change hue mixed into the
+     surface, and a line tint is that colour mixed down again — the gutter
+     takes 40%, the code row 28% (the "fine" pair it uses wherever words were
+     compared, which is always here). The divider band keeps the full tone,
+     which is why it reads as a band while the rows stay quiet. The track sits
+     on the app background, one step below the panes, so the band has an edge. */
+  --gwb-diff-add: color-mix(in srgb, var(--gwb-add) 30%, var(--gwb-panel));
+  --gwb-diff-del: color-mix(in srgb, var(--gwb-del) 30%, var(--gwb-panel));
+  --gwb-diff-add-gutter: color-mix(in srgb, var(--gwb-diff-add) 40%, var(--gwb-panel));
+  --gwb-diff-del-gutter: color-mix(in srgb, var(--gwb-diff-del) 40%, var(--gwb-panel));
+  --gwb-diff-add-row: color-mix(in srgb, var(--gwb-diff-add) 28%, var(--gwb-panel));
+  --gwb-diff-del-row: color-mix(in srgb, var(--gwb-diff-del) 28%, var(--gwb-panel));
+  --gwb-diff-add-band: var(--gwb-diff-add);
+  --gwb-diff-del-band: var(--gwb-diff-del);
+  --gwb-diff-add-word: color-mix(in srgb, var(--gwb-diff-add) 85%, transparent);
+  --gwb-diff-del-word: color-mix(in srgb, var(--gwb-diff-del) 85%, transparent);
+  --gwb-diff-track: var(--gwb-bg);
   /* Line numbers are text, so they owe the reader 4.5:1 — the host tertiary alone is 3.7. */
   --gwb-diff-ln: var(--gwb-dim);
 
@@ -770,35 +781,35 @@ window.__ModuleLoader__.load({
 .gwb-nowrap .gwb-hunkhead,
 .gwb-nowrap .gwb-section,
 .gwb-nowrap .gwb-turnfile .gwb-ovhead { width: var(--gwb-codew, 100%); min-width: 100%; }
-.gwb-dc.code.add { background: var(--gwb-diff-add-bg); }
-.gwb-dc.code.del { background: var(--gwb-diff-del-bg); }
+.gwb-dc.code.add { background: var(--gwb-diff-add-row); }
+.gwb-dc.code.del { background: var(--gwb-diff-del-row); }
 .gwb-dc.code.pad { background-color: var(--gwb-diff-gap); }
 
 /* The divider track between the panes; the coloured shapes are painted on a
    layer above (see drawDiffBands) so a whole change run reads as one band. */
-.gwb-dc.con { position: relative; background: var(--gwb-diff-gap); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); }
+.gwb-dc.con { position: relative; background: var(--gwb-diff-track); box-shadow: inset 1px 0 0 var(--gwb-border), inset -1px 0 0 var(--gwb-border); }
 /* The band layer: one shape per change run, clamped to the divider column and
    filled with the run's own colour, so it reads as the changed rows flowing
    into each other rather than a decoration on the track. */
 .gwb-bandlayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .gwb-diffband { stroke: none; }
-.gwb-diffband.add { fill: var(--gwb-diff-add-gutter); }
-.gwb-diffband.del { fill: var(--gwb-diff-del-gutter); }
+.gwb-diffband.add { fill: var(--gwb-diff-add-band); }
+.gwb-diffband.del { fill: var(--gwb-diff-del-band); }
 .gwb-diffband.mod { fill: url(#gwb-band-mod); }
-/* The reference strokes the band's midline in the same colour, so the band and
-   its outline read as one shape. */
+/* The band's midline is drawn in the band's own colour, as the reference
+   does: it only rounds the ends where a run is shorter than its pair. */
 .gwb-diffbandline { fill: none; stroke-width: 1; }
-.gwb-diffbandline.add { stroke: var(--gwb-diff-add-gutter); }
-.gwb-diffbandline.del { stroke: var(--gwb-diff-del-gutter); }
-.gwb-diffbands stop.del { stop-color: var(--gwb-diff-del-gutter); }
-.gwb-diffbands stop.add { stop-color: var(--gwb-diff-add-gutter); }
+.gwb-diffbandline.add { stroke: var(--gwb-diff-add-band); }
+.gwb-diffbandline.del { stroke: var(--gwb-diff-del-band); }
+.gwb-diffbands stop.del { stop-color: var(--gwb-diff-del-band); }
+.gwb-diffbands stop.add { stop-color: var(--gwb-diff-add-band); }
 /* The divider's action: one block, one arrow, centred in its band. It sits
    above the band layer, so the shape runs behind it. */
 .gwb-diffarrow { position: absolute; top: 50%; left: 50%; z-index: 3; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--gwb-dim); line-height: 1; cursor: pointer; transition: background .12s ease, color .12s ease; }
 .gwb-diffarrow:hover, .gwb-diffarrow:focus-visible { color: var(--gwb-text); background: color-mix(in srgb, var(--gwb-bg) 78%, transparent); outline: none; }
 /* Hovering a row lights the pair on both sides. */
-.gwb-drow:hover .gwb-dc.code.add { background: color-mix(in srgb, var(--gwb-diff-add-word) 58%, var(--gwb-diff-add-bg)); }
-.gwb-drow:hover .gwb-dc.code.del { background: color-mix(in srgb, var(--gwb-diff-del-word) 58%, var(--gwb-diff-del-bg)); }
+.gwb-drow:hover .gwb-dc.code.add { background: color-mix(in srgb, var(--gwb-diff-add) 45%, var(--gwb-panel)); }
+.gwb-drow:hover .gwb-dc.code.del { background: color-mix(in srgb, var(--gwb-diff-del) 45%, var(--gwb-panel)); }
 .gwb-drow:hover .gwb-dc.ln { color: var(--gwb-text); }
 .gwb-dc.code .gwb-syn-kw { color: var(--gwb-syn-keyword); }
 .gwb-dc.code .gwb-syn-str { color: var(--gwb-syn-string); }
