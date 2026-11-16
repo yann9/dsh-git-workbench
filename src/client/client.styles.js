@@ -70,6 +70,11 @@ window.__ModuleLoader__.load({
   --gwb-diff-del-band: var(--gwb-diff-del);
   --gwb-diff-add-word: color-mix(in srgb, var(--gwb-diff-add) 85%, transparent);
   --gwb-diff-del-word: color-mix(in srgb, var(--gwb-diff-del) 85%, transparent);
+  /* The missing side of a one-sided chunk: one bright gutter rule at the
+     boundary, in the full change colour like the reference's --gutter-added
+     (it scans at #98c379 there, well above the band's own tone). */
+  --gwb-diff-add-gap: var(--gwb-add);
+  --gwb-diff-del-gap: var(--gwb-del);
   --gwb-diff-track: var(--gwb-bg);
   /* Line numbers are text, so they owe the reader 4.5:1 — the host tertiary alone is 3.7. */
   --gwb-diff-ln: var(--gwb-dim);
@@ -762,14 +767,12 @@ window.__ModuleLoader__.load({
 .gwb-dc.ln { text-align: right; padding-right: 8px; color: var(--gwb-diff-ln); font-size: 11px; user-select: none; background: transparent; font-variant-numeric: tabular-nums; }
 .gwb-dc.ln.add { background: var(--gwb-diff-add-gutter); }
 .gwb-dc.ln.del { background: var(--gwb-diff-del-gutter); }
-.gwb-dc.ln.pad { background: var(--gwb-diff-gap); }
 .gwb-dc.bar { position: relative; background: transparent; user-select: none; }
 .gwb-dc.bar.add { cursor: pointer; background: var(--gwb-diff-add-gutter); }
 .gwb-dc.bar.del { cursor: pointer; background: var(--gwb-diff-del-gutter); }
 /* Only a clickable gutter answers the pointer; the tint stays underneath. */
 .gwb-dc.bar.add:not(.inert):hover { background: linear-gradient(var(--gwb-hover), var(--gwb-hover)), var(--gwb-diff-add-gutter); }
 .gwb-dc.bar.del:not(.inert):hover { background: linear-gradient(var(--gwb-hover), var(--gwb-hover)), var(--gwb-diff-del-gutter); }
-.gwb-dc.bar.pad { background: var(--gwb-diff-gap); }
 .gwb-dc.code { padding: 0 10px; white-space: pre-wrap; overflow-wrap: break-word; }
 /* Unwrapped code only exists in the unified view: a split diff wraps, because
    two columns cannot both stay in view once one is as wide as its longest
@@ -783,7 +786,12 @@ window.__ModuleLoader__.load({
 .gwb-nowrap .gwb-turnfile .gwb-ovhead { width: var(--gwb-codew, 100%); min-width: 100%; }
 .gwb-dc.code.add { background: var(--gwb-diff-add-row); }
 .gwb-dc.code.del { background: var(--gwb-diff-del-row); }
-.gwb-dc.code.pad { background-color: var(--gwb-diff-gap); }
+/* A chunk missing on this side is one thin rule at the boundary, in the
+   gutter colour — the reference's cm-diffGap marker — not a filled block. It
+   is painted on the band layer (see drawDiffBands) so it spans the pane. */
+.gwb-diffgap { stroke-width: 1; }
+.gwb-diffgap.add { stroke: var(--gwb-diff-add-gap); }
+.gwb-diffgap.del { stroke: var(--gwb-diff-del-gap); }
 
 /* The divider track between the panes; the coloured shapes are painted on a
    layer above (see drawDiffBands) so a whole change run reads as one band. */

@@ -410,9 +410,10 @@ window.__ModuleLoader__.load({
       }
       if (runs.length === 0) return
       const ns = 'http://www.w3.org/2000/svg'
+      const contentW = Math.max(1, Math.ceil(body.scrollWidth))
       const svg = document.createElementNS(ns, 'svg')
       svg.setAttribute('class', 'gwb-diffbands')
-      svg.setAttribute('width', String(Math.max(1, Math.ceil(body.scrollWidth))))
+      svg.setAttribute('width', String(contentW))
       svg.setAttribute('height', String(Math.max(1, Math.ceil(body.scrollHeight))))
       svg.setAttribute('aria-hidden', 'true')
       const defs = document.createElementNS(ns, 'defs')
@@ -458,6 +459,11 @@ window.__ModuleLoader__.load({
             : [Math.min(...side.map((box) => box.y0)), Math.max(...side.map((box) => box.y1))]
         const [a0, a1] = extentOf(left)
         const [b0, b1] = extentOf(right)
+        // A side with no lines in the chunk is marked by one thin rule at the
+        // boundary (IDEA's cm-diffGap), not by a filled block: the missing side
+        // keeps the pane surface and only says where its lines would sit.
+        if (left.length === 0) paint(`M0 ${runTop + 0.5}H${bx0}`, `gwb-diffgap ${kind}`)
+        else if (right.length === 0) paint(`M${bx1} ${runTop + 0.5}H${contentW}`, `gwb-diffgap ${kind}`)
         const c1 = bx0 + w * 0.3
         const c2 = bx0 + w * 0.7
         paint(
