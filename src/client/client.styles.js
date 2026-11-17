@@ -800,6 +800,10 @@ window.__ModuleLoader__.load({
 /* The divider track between the panes; the coloured shapes are painted on a
    layer above (see drawDiffBands) so a whole change run reads as one band. */
 .gwb-bandlayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+/* An inline SVG is baseline-aligned, and the line box's descent used to add a
+   few pixels of scrollable overflow below the layer — enough for a small diff
+   to look scrollable, then snap back when the browser clamped the scroll. */
+.gwb-diffbands { display: block; }
 .gwb-diffband { stroke: none; }
 .gwb-diffband.add { fill: var(--gwb-diff-add-band); }
 .gwb-diffband.del { fill: var(--gwb-diff-del-band); }
