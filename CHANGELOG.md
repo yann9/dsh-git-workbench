@@ -4,10 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.1.9 — 2026-11-17
 
 ### Added
 
+- The side-by-side diff draws one colour band per change across the divider,
+  and the panes follow each other's scroll through those bands. The stage
+  arrows sit on the divider and name their action in a hint on hover or
+  focus, so the direction is readable without guessing.
 - The log's filter menu now lists the values the repository actually has —
   authors with their commit counts, tags, and date ranges from today to this
   year — so a condition no longer starts with typing `author:` from memory.
@@ -22,6 +26,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The side-by-side diff lays each pane out independently, the way an IDE does:
+  each pane lists only its own lines with its own numbers, no blank placeholder
+  rows, and a chunk that exists on one side leaves the other a single hairline.
+  A whole-file add or delete marks its empty side the same way. The gutter
+  between the panes is wide enough to hold the bands and arrows.
 - Pull, push, fetch, merge and tag-push report what actually happened — the
   branch, its upstream, how many commits moved, whether a branch was new or
   already up to date — instead of pasting git's transfer banner into the
@@ -30,6 +39,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Staging every line of a deleted file recorded an empty blob instead of the
+  deletion, so the file stayed "modified" and an empty unstaged block
+  appeared after staging; whole-file staging now removes the index entry, and
+  unstaging restores the file to the worktree, including when only some of
+  its deleted lines are chosen.
 - Pushing a branch whose upstream carries another name — one just created
   from a different remote branch, or one renamed after it was pushed — no
   longer dies on "the upstream branch … does not match the name of your
