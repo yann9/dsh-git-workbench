@@ -221,6 +221,35 @@ test('a new file is staged whole when partial staging is requested', async () =>
   }
 })
 
+test('staging a whole deleted file records the deletion, not an empty blob', async () => {
+  const dir = await makeRepo('delete')
+  try {
+    await writeFile(path.join(dir, 'gone.txt'), 'one\ntwo\n')
+    commitAll(dir, 'init')
+    await rm(path.join(dir, 'gone.txt'))
+
+    const service = new GitService({ defaultDir: dir })
+    await service.stage({ file: 'gone.txt', direction: 'stage', mode: 'hunk', hunk: 0 })
+
+    assert.equal(gitSync(dir, ['status', '--porcelain']).trim(), 'D  gone.txt')
+    const payload = await service.fileDiff(dir, 'gone.txt')
+    assert.equal(payload.unstaged, null, 'the empty worktree side disappears')
+
+    await service.stage({ file: 'gone.txt', direction: 'unstage', mode: 'hunk', hunk: 0 })
+    assert.equal(gitSync(dir, ['status', '--porcelain']).trim(), 'D gone.txt')
+
+    // Restoring only some deleted lines turns the index entry into a partial
+    // modification: the chosen line is back, the rest are still deleted.
+    await service.stage({ file: 'gone.txt', direction: 'stage', mode: 'hunk', hunk: 0 })
+    await service.stage({ file: 'gone.txt', direction: 'unstage', mode: 'lines', hunk: 0, lines: [0] })
+    const cached = gitSync(dir, ['diff', '--cached', '--unified=0'])
+    assert.match(cached, /^-two$/m)
+    assert.doesNotMatch(cached, /^-one$/m, 'the unstaged line came back into the index')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('commit, log, blame and branches work against a real repository', async () => {
   const dir = await makeRepo('history')
   try {

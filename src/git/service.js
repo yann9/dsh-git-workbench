@@ -687,6 +687,30 @@ export class GitService {
         }
       }
 
+      // A deletion has no post-image to crop: an index with the whole file
+      // deleted holds no path at all, not an empty blob. Staging all lines
+      // therefore means dropping the entry, and a partial reverse patch has to
+      // start from the HEAD entry instead of a missing one.
+      if (fileDiff.status === 'deleted') {
+        const allSelected =
+          fileDiff.hunks.length > 0 && fileDiff.hunks.every((hunk) => hunk.lines.every((line) => selected.has(line.id)))
+        if (request.direction === 'stage' && allSelected) {
+          await git(root, ['update-index', '--force-remove', '--', request.file])
+          return { ok: true, applied: request.mode, bytes: 0 }
+        }
+        if (request.direction === 'unstage') {
+          await git(root, ['restore', '--staged', '--', request.file])
+          if (allSelected) return { ok: true, applied: request.mode, bytes: 0 }
+          const remaining = new Set()
+          for (const hunk of fileDiff.hunks) {
+            for (const line of hunk.lines) if (!selected.has(line.id)) remaining.add(line.id)
+          }
+          const stillDeleted = buildPatch(fileDiff, remaining, 'stage')
+          if (stillDeleted) await applyToIndex(root, stillDeleted)
+          return { ok: true, applied: request.mode, bytes: stillDeleted?.length ?? 0 }
+        }
+      }
+
       const patch = buildPatch(fileDiff, selected, request.direction)
       if (!patch) throw new Error('nothing selected to apply')
       await applyToIndex(root, patch, { reverse: request.direction === 'unstage' })
