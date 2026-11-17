@@ -89,6 +89,74 @@ window.__ModuleLoader__.load({
      */
     const LOG_QUERY_FIELDS = ['author', 'message', 'hash', 'tag', 'branch', 'date']
 
+    /** The fields the filter menu fills in, so nobody has to type their names. */
+    const LOG_PICKED_FIELDS = ['author', 'date', 'tag']
+
+    const RECENT_FILTERS_KEY = 'dsh-git.recentFilters.v1'
+
+    /** One `key:value` term, quoted when the value carries spaces. */
+    function logTermRaw(key, value) {
+      return `${key}:${/\s/.test(value) ? `"${value}"` : value}`
+    }
+
+    /** Recent filter sets: a small, repository-independent history. */
+    function readRecentFilters() {
+      try {
+        const value = JSON.parse(localStorage.getItem(RECENT_FILTERS_KEY) ?? '[]')
+        return Array.isArray(value)
+          ? value.filter(
+              (item) =>
+                item &&
+                typeof item === 'object' &&
+                ['author', 'date', 'tag', 'query'].every((key) => typeof item[key] === 'string'),
+            )
+          : []
+      } catch {
+        return []
+      }
+    }
+
+    /**
+     * The value a date preset writes into the condition. The reader's own
+     * calendar decides the day, because that is the day they see in the list.
+     * @param {'today'|'7'|'30'|'year'} preset
+     */
+    function logDatePreset(preset) {
+      const now = new Date()
+      if (preset === 'year') return `>=${now.getFullYear()}-01-01`
+      const from = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      if (preset === '7') from.setDate(from.getDate() - 6)
+      else if (preset === '30') from.setDate(from.getDate() - 29)
+      return `>=${localDayKey(from)}`
+    }
+
+    /**
+     * A date condition as a phrase. A preset shows as "today" while it still
+     * means today; once the calendar moves on it falls back to the stored
+     * value, which is the truth the condition has always meant.
+     * @param {string} value
+     */
+    function logDateLabel(value) {
+      const text = String(value ?? '')
+      for (const preset of ['today', '7', '30', 'year']) {
+        if (text !== logDatePreset(preset)) continue
+        if (preset === 'today') return tt('log.dateToday')
+        if (preset === 'year') return tt('log.dateYear')
+        return tt('log.dateDays', { count: Number(preset) })
+      }
+      return text
+    }
+
+    /** A picked filter (or free text) as one readable line for the recent list. */
+    function logFilterLabel(item) {
+      const parts = []
+      if (item.author) parts.push(`${tt('log.field.author')}: ${item.author}`)
+      if (item.date) parts.push(`${tt('log.field.date')}: ${logDateLabel(item.date)}`)
+      if (item.tag) parts.push(`${tt('log.field.tag')}: ${item.tag}`)
+      if (item.query) parts.push(item.query)
+      return parts.join(' · ')
+    }
+
     /**
      * Split a search string into tokens. Double quotes keep a value with
      * spaces in one piece, so `author:"Ada Lovelace"` is a single condition.
@@ -383,9 +451,13 @@ window.__ModuleLoader__.load({
     const LOG_ROW_MORE = 20
     /** How narrow the message column is allowed to get. */
     const LOG_SUBJECT_MIN = 40
-    /** Below these the table drops the author, then the hash. */
-    const LOG_NARROW_WIDTH = 460
-    const LOG_TIGHT_WIDTH = 340
+    /**
+     * Below these the table drops the author, then the hash. The bar sits
+     * well above the old 460: at the usual ~535px sidebar the author column
+     * had no room, and the message was the column paying for it.
+     */
+    const LOG_NARROW_WIDTH = 620
+    const LOG_TIGHT_WIDTH = 480
 
     /**
      * How many branch labels a row can spell out in the room it has. A label
@@ -575,45 +647,94 @@ window.__ModuleLoader__.load({
 
     function computeGraph(entries) {
       const lanes = []
+      const laneColors = []
       const rows = []
+      let nextColor = 0
+      /** Put a hash in `preferred` (or the nearest free lane other than `avoid`). */
+      const claim = (hash, preferred, avoid = -1, color) => {
+        let lane = -1
+        if (preferred >= 0 && (lanes[preferred] === null || lanes[preferred] === undefined)) lane = preferred
+        else lane = lanes.findIndex((value, index) => value === null && index !== avoid)
+        if (lane === -1) {
+          lane = lanes.length
+          lanes.push(hash)
+        } else {
+          lanes[lane] = hash
+        }
+        laneColors[lane] = color ?? nextColor++
+        return lane
+      }
       for (const entry of entries) {
         let lane = lanes.indexOf(entry.hash)
+        let color
         if (lane === -1) {
-          lane = lanes.indexOf(null)
-          if (lane === -1) {
-            lane = lanes.length
-            lanes.push(entry.hash)
-          } else {
-            lanes[lane] = entry.hash
-          }
+          lane = claim(entry.hash, -1)
+          color = laneColors[lane]
+        } else {
+          color = laneColors[lane] ?? nextColor++
+          laneColors[lane] = color
         }
         const before = lanes.slice()
-        const edges = []
-        const parents = entry.parents
-        if (parents.length === 0) {
-          lanes[lane] = null
-        } else {
-          lanes[lane] = parents[0]
-          for (const parent of parents.slice(1)) {
-            let target = lanes.indexOf(parent)
-            if (target === -1) {
-              target = lanes.indexOf(null)
-              if (target === -1) {
-                lanes.push(parent)
-                target = lanes.length - 1
-              } else {
-                lanes[target] = parent
-              }
-            }
-            edges.push({ from: lane, to: target })
+        const beforeColors = laneColors.slice()
+        // The upper half of the row: every live lane comes in at the top edge
+        // and ends either at this commit's node or straight down its own lane.
+        const up = []
+        for (let index = 0; index < before.length; index += 1) {
+          if (!before[index]) continue
+          up.push({ from: index, to: before[index] === entry.hash ? lane : index, color: beforeColors[index] ?? 0 })
+        }
+        const starts = []
+        // A commit can only end the lanes that actually point at it. Clearing
+        // all of them is what keeps a merge from leaving a second copy behind:
+        // the old code wrote the first parent into the current lane even when
+        // that parent already owned another lane, and the duplicate then ran
+        // down the rest of the list.
+        for (let index = 0; index < lanes.length; index += 1) {
+          if (lanes[index] === entry.hash) {
+            starts.push(index)
+            lanes[index] = null
           }
         }
+        const parents = entry.parents ?? []
+        const placed = new Map()
+        parents.forEach((parent, index) => {
+          if (placed.has(parent)) return
+          let target = lanes.indexOf(parent)
+          // The first parent continues in this commit's own lane when it is
+          // still free; every other parent takes another lane. A parent that
+          // already has a lane keeps it, so two lanes can never point at the
+          // same commit.
+          if (target === -1) target = claim(parent, index === 0 ? lane : -1, index === 0 ? -1 : lane, index === 0 ? color : undefined)
+          placed.set(parent, { lane: target, color: laneColors[target] ?? color })
+        })
         const after = lanes.slice()
         while (after.length > 0 && after[after.length - 1] === null) after.pop()
-        rows.push({ lane, before, after, edges })
+        // The lower half: lanes that pass this row untouched run straight down,
+        // then each parent leaves the node as a straight diagonal.
+        const down = []
+        for (let index = 0; index < before.length; index += 1) {
+          if (!before[index] || before[index] === entry.hash) continue
+          down.push({ from: index, to: index, color: beforeColors[index] ?? 0 })
+        }
+        for (const parent of placed.values()) down.push({ from: lane, to: parent.lane, color: parent.color })
+        const edges = []
+        for (const from of starts) {
+          for (const parent of parents) {
+            const to = placed.get(parent)?.lane
+            if (to === undefined || to === from) continue
+            if (!edges.some((edge) => edge.from === from && edge.to === to)) edges.push({ from, to })
+          }
+        }
+        const width = Math.max(
+          2,
+          before.length,
+          after.length,
+          lane + 1,
+          ...up.map((segment) => segment.from + 1),
+          ...down.map((segment) => Math.max(segment.from, segment.to) + 1),
+        )
+        rows.push({ lane, color, before, after, edges, up, down, width })
       }
-      const width = Math.max(2, ...rows.map((row) => Math.max(row.before.length, row.after.length)))
-      for (const row of rows) row.width = width
       return rows
     }
 
@@ -630,32 +751,35 @@ window.__ModuleLoader__.load({
       'color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 55%, var(--dsw-alias-state-warn-primary, #dd8629))',
     ]
 
-    function GraphSvg({ row }) {
-      const step = 12
+    /**
+     * One row of the graph, drawn the way IDEA does it: straight diagonals from
+     * the top edge to the node and from the node to the bottom edge, so lanes
+     * never bow into their neighbours. The checked-out commit is a ring.
+     */
+    function GraphSvg({ row, head = false }) {
+      const step = 14
       const height = 26
-      const x = (lane) => 8 + lane * step
+      const x = (lane) => 7 + lane * step
+      const colorOf = (index) => LANE_COLORS[index % LANE_COLORS.length]
       const children = []
-      for (let lane = 0; lane < row.before.length; lane += 1) {
-        if (row.before[lane] === null) continue
-        const continues = row.after[lane] !== null && row.after[lane] !== undefined
+      for (const segment of row.up ?? []) {
         children.push(
-          h('line', { key: `l${lane}`, x1: x(lane), y1: 0, x2: x(lane), y2: continues ? height : height / 2, stroke: LANE_COLORS[lane % 6], strokeWidth: 1.4, opacity: 0.85 }),
+          h('line', { key: `u${segment.from}-${segment.to}`, x1: x(segment.from), y1: 0, x2: x(segment.to), y2: height / 2, stroke: colorOf(segment.color), strokeWidth: 1.4 }),
         )
       }
-      for (const edge of row.edges) {
+      for (const segment of row.down ?? []) {
         children.push(
-          h('path', {
-            key: `e${edge.from}-${edge.to}`,
-            d: `M${x(edge.from)},${height / 2} C${x(edge.from)},${height} ${x(edge.to)},${height / 2} ${x(edge.to)},${height}`,
-            fill: 'none',
-            stroke: LANE_COLORS[edge.to % 6],
-            strokeWidth: 1.4,
-            opacity: 0.85,
-          }),
+          h('line', { key: `d${segment.from}-${segment.to}`, x1: x(segment.from), y1: height / 2, x2: x(segment.to), y2: height, stroke: colorOf(segment.color), strokeWidth: 1.4 }),
         )
       }
-      children.push(h('circle', { key: 'dot', cx: x(row.lane), cy: height / 2, r: 3.2, fill: LANE_COLORS[row.lane % 6] }))
-      const width = Math.max(row.width * step + 8, 20)
+      const nodeColor = colorOf(row.color)
+      if (head) {
+        children.push(h('circle', { key: 'ring', cx: x(row.lane), cy: height / 2, r: 4.5, fill: 'var(--gwb-bg)', stroke: nodeColor, strokeWidth: 1.5 }))
+        children.push(h('circle', { key: 'hub', cx: x(row.lane), cy: height / 2, r: 2, fill: nodeColor }))
+      } else {
+        children.push(h('circle', { key: 'dot', cx: x(row.lane), cy: height / 2, r: 3.2, fill: nodeColor }))
+      }
+      const width = Math.max(row.width * step, 20)
       return h('svg', { width, height, viewBox: `0 0 ${width} ${height}` }, children)
     }
 
@@ -2183,6 +2307,13 @@ window.__ModuleLoader__.load({
       const [entries, setEntries] = useState([])
       const [allBranches, setAllBranches] = useState(true)
       const [query, setQuery] = useState('')
+      // The conditions the filter menu fills in. They live apart from the text
+      // so the menu can offer a value the user recognises — nobody has to
+      // remember that the field is spelled `author:`.
+      const [filters, setFilters] = useState({ author: '', date: '', tag: '' })
+      // Which page the filter menu shows: the field list or one field's values.
+      const [filterPane, setFilterPane] = useState('root')
+      const [recents, setRecents] = useState(readRecentFilters)
       // The search box keeps the focus after a field is picked from the menu.
       const filterRef = useRef(null)
       const [active, setActive] = useState('')
@@ -2719,7 +2850,231 @@ window.__ModuleLoader__.load({
       // No auto-open: the newest commit is often a merge whose full diff is
       // huge; the detail pane keeps its hint until a commit is clicked.
 
-      const parsed = useMemo(() => parseLogQuery(query), [query])
+      // The menu-written conditions come first so their chips read in the
+      // order the menu lists the fields, ahead of anything typed by hand.
+      const pickedParts = useMemo(
+        () =>
+          LOG_PICKED_FIELDS.filter((key) => filters[key]).map((key) => ({
+            kind: 'term',
+            key,
+            value: filters[key],
+            raw: logTermRaw(key, filters[key]),
+          })),
+        [filters],
+      )
+
+      const typed = useMemo(() => parseLogQuery(query), [query])
+
+      // One condition list for matching and for the chips: a picked field and
+      // a typed one mean the same thing, so they have to be combined before
+      // either filter or chip rendering happens.
+      const parsed = useMemo(
+        () =>
+          pickedParts.length === 0
+            ? typed
+            : { parts: [...pickedParts, ...typed.parts], terms: [...pickedParts, ...typed.terms], free: typed.free },
+        [typed, pickedParts],
+      )
+
+      const hasFilters = query.trim() !== '' || pickedParts.length > 0
+
+      const applyPicked = (key, value) => {
+        setFilters((current) => ({ ...current, [key]: value }))
+        setFilterPane('root')
+      }
+
+      const clearFilters = () => {
+        setQuery('')
+        setFilters({ author: '', date: '', tag: '' })
+      }
+
+      // Spelling a condition out stays possible in the search box, so the
+      // box's live conditions are remembered alongside the menu's picks.
+      const rememberFilter = useCallback(() => {
+        const text = query.trim()
+        if (!text && pickedParts.length === 0) return
+        const entry = { author: filters.author, date: filters.date, tag: filters.tag, query: text }
+        setRecents((current) => {
+          const next = [entry, ...current.filter((item) => logFilterLabel(item) !== logFilterLabel(entry))].slice(0, 5)
+          try {
+            localStorage.setItem(RECENT_FILTERS_KEY, JSON.stringify(next))
+          } catch {}
+          return next
+        })
+      }, [query, filters, pickedParts.length])
+
+      const clearRecents = () => {
+        setRecents([])
+        try {
+          localStorage.removeItem(RECENT_FILTERS_KEY)
+        } catch {}
+      }
+
+      const applyRecent = (item) => {
+        setFilters({ author: item.author, date: item.date, tag: item.tag })
+        setQuery(item.query)
+        setFilterPane('root')
+      }
+
+      // The authors actually in the list, most frequent first: a value the
+      // user can see beats a value they have to spell from memory.
+      const authorChoices = useMemo(() => {
+        const byName = new Map()
+        for (const entry of entries) {
+          const name = String(entry.author ?? '').trim()
+          const email = String(entry.email ?? '').trim()
+          const value = name || email
+          if (!value) continue
+          const known = byName.get(value)
+          if (known) known.count += 1
+          else byName.set(value, { value, email, count: 1 })
+        }
+        return [...byName.values()].sort((left, right) => right.count - left.count || left.value.localeCompare(right.value))
+      }, [entries])
+
+      /**
+       * The filter menu starts at the field list and swaps to one field's
+       * values. The way back is a row of its own, so the popup never traps
+       * someone in a page with nothing they want.
+       */
+      const filterMenuRows = () => {
+        const back = (key) =>
+          h(
+            'div',
+            { key, className: 'gwb-menu-stay' },
+            h(
+              MenuRow,
+              { onClick: () => setFilterPane('root') },
+              h('span', { className: 'gwb-rowicon' }, h(GitIcons.chevLeft)),
+              h('span', { className: 'gwb-grow' }, tt('log.filterBack')),
+            ),
+          )
+        const empty = (key) => h('div', { key, className: 'gwb-menu-title' }, tt('log.filterNoValue'))
+        const heading = (key, text) => h('div', { key, className: 'gwb-menu-title' }, text)
+
+        if (filterPane === 'author') {
+          return [
+            back('back'),
+            authorChoices.length === 0
+              ? empty('empty')
+              : heading('title', tt('log.filterByAuthor')),
+            ...authorChoices.slice(0, 80).map((person) =>
+              h(
+                MenuRow,
+                {
+                  key: person.value,
+                  current: filters.author === person.value,
+                  onClick: () => applyPicked('author', person.value),
+                },
+                h('span', { className: 'gwb-rowicon' }, h(GitIcons.user)),
+                h('span', { className: 'gwb-grow', title: person.email || person.value }, person.value),
+                h('span', { className: 'gwb-meta' }, String(person.count)),
+              ),
+            ),
+          ]
+        }
+
+        if (filterPane === 'date') {
+          const presets = ['today', '7', '30', 'year']
+          return [
+            back('back'),
+            heading('title', tt('log.filterByDate')),
+            ...presets.map((preset) => {
+              const value = logDatePreset(preset)
+              const label =
+                preset === 'today'
+                  ? tt('log.dateToday')
+                  : preset === 'year'
+                    ? tt('log.dateYear')
+                    : tt('log.dateDays', { count: Number(preset) })
+              return h(
+                MenuRow,
+                {
+                  key: preset,
+                  current: filters.date === value,
+                  onClick: () => applyPicked('date', value),
+                },
+                h('span', { className: 'gwb-rowicon' }, h(GitIcons.calendar)),
+                h('span', { className: 'gwb-grow' }, label),
+              )
+            }),
+          ]
+        }
+
+        if (filterPane === 'tag') {
+          return [
+            back('back'),
+            branchList.tags.length === 0
+              ? empty('empty')
+              : heading('title', tt('log.filterByTag')),
+            ...branchList.tags.slice(0, 60).map((tag) =>
+              h(
+                MenuRow,
+                {
+                  key: tag,
+                  current: filters.tag === tag,
+                  onClick: () => applyPicked('tag', tag),
+                },
+                h('span', { className: 'gwb-rowicon' }, h(GitIcons.tag)),
+                h('span', { className: 'gwb-grow', title: tag }, tag),
+              ),
+            ),
+          ]
+        }
+
+        const rows = []
+        if (recents.length > 0) {
+          rows.push(heading('recent-title', tt('log.filterRecent')))
+          recents.forEach((item, index) => {
+            const label = logFilterLabel(item)
+            rows.push(
+              h(
+                MenuRow,
+                { key: `recent:${index}`, onClick: () => applyRecent(item) },
+                h('span', { className: 'gwb-rowicon' }, h(GitIcons.history)),
+                h('span', { className: 'gwb-grow', title: label }, label),
+              ),
+            )
+          })
+          rows.push(
+            h(
+              'div',
+              { key: 'recent-clear', className: 'gwb-menu-stay' },
+              h(
+                MenuRow,
+                { onClick: clearRecents },
+                h('span', { className: 'gwb-rowicon' }, h(GitIcons.trash)),
+                h('span', { className: 'gwb-grow' }, tt('log.clearRecent')),
+              ),
+            ),
+          )
+        }
+        rows.push(heading('pick-title', tt('log.filterPick')))
+        const fields = [
+          ['author', GitIcons.user, tt('log.filterByAuthor')],
+          ['date', GitIcons.calendar, tt('log.filterByDate')],
+          ['tag', GitIcons.tag, tt('log.filterByTag')],
+        ]
+        for (const [key, icon, label] of fields) {
+          const value = filters[key]
+          rows.push(
+            h(
+              'div',
+              { key: `pick:${key}`, className: 'gwb-menu-stay' },
+              h(
+                MenuRow,
+                { onClick: () => setFilterPane(key) },
+                h('span', { className: 'gwb-rowicon' }, h(icon)),
+                h('span', { className: 'gwb-grow' }, label),
+                value
+                  ? h('span', { className: 'gwb-meta' }, key === 'date' ? logDateLabel(value) : value)
+                  : h('span', { className: 'gwb-rowicon' }, h(GitIcons.chevRight)),
+              ),
+            ),
+          )
+        }
+        return rows
+      }
 
       const matches = useCallback(
         (entry) => {
@@ -3134,7 +3489,19 @@ window.__ModuleLoader__.load({
               commitActions(event.clientX, event.clientY, entry)
             },
           },
-          graphOn ? h('span', { className: 'gwb-log-graph' }, h(GraphSvg, { row: rows[index] })) : null,
+          graphOn
+            ? h(
+                'span',
+                { className: 'gwb-log-graph' },
+                h(GraphSvg, {
+                  row: rows[index],
+                  head: (entry.refs ?? []).some((ref) => {
+                    const value = String(ref)
+                    return value === 'HEAD' || value.startsWith('HEAD ->')
+                  }),
+                }),
+              )
+            : null,
           h(
             'span',
             { className: 'gwb-subject' },
@@ -3227,7 +3594,7 @@ window.__ModuleLoader__.load({
           return h(
             'div',
             { className: 'gwb-loading' },
-            query.trim() !== '' && (compare.ahead > 0 || compare.behind > 0) ? tt('log.noMatch') : tt('log.compareEqual'),
+            hasFilters && (compare.ahead > 0 || compare.behind > 0) ? tt('log.noMatch') : tt('log.compareEqual'),
           )
         }
         return sides
@@ -3318,7 +3685,7 @@ window.__ModuleLoader__.load({
             { className: 'gwb-chip-meta' },
             compare
               ? `${tt('log.compareAhead', { count: compare.ahead })} · ${tt('log.compareBehind', { count: compare.behind })}`
-              : query.trim() !== '' || onlySelected
+              : hasFilters || onlySelected
                 ? tt('log.countFiltered', { shown: filtered.length, total: entries.length })
                 : tt('log.count', { count: entries.length }),
           ),
@@ -3397,44 +3764,33 @@ window.__ModuleLoader__.load({
                       spellCheck: false,
                       value: query,
                       onChange: (event) => setQuery(event.target.value),
-                    }),
-                    h(
-                      Menu,
-                      {
-                        align: 'down',
-                        width: 230,
-                        title: tt('log.filterFields'),
-                        button: h(
-                          'button',
-                          {
-                            className: 'gwb-search-caret',
-                            title: tt('log.filterFields'),
-                            'aria-label': tt('log.filterFields'),
-                          },
-                          h(GitIcons.chevDown, { size: 11 }),
-                        ),
+                      onKeyDown: (event) => {
+                        if (event.key === 'Enter') rememberFilter()
                       },
-                      // Picking a field drops its prefix into the box and lets
-                      // the user finish the value — the same shortcut the IDE
-                      // gives in its log toolbar.
-                      ...LOG_QUERY_FIELDS.map((field) =>
-                        h(
-                          MenuRow,
-                          {
-                            key: field,
-                            onClick: () => {
-                              setQuery((current) => {
-                                const trimmed = current.trim()
-                                return trimmed === '' ? `${field}:` : `${trimmed} ${field}:`
-                              })
-                              window.requestAnimationFrame(() => filterRef.current?.focus())
-                            },
-                          },
-                          h('span', { className: 'gwb-grow' }, tt(`log.field.${field}`)),
-                          h('span', { className: 'gwb-meta' }, `${field}:`),
-                        ),
+                      onBlur: rememberFilter,
+                    }),
+                  ),
+                  // The menu offers the log's own values — the authors and tags
+                  // that are actually in it, plus the date ranges people ask
+                  // for. Nobody has to remember a field name or its syntax.
+                  h(
+                    Menu,
+                    {
+                      align: 'down',
+                      width: 260,
+                      title: tt('log.filters'),
+                      onOpen: () => setFilterPane('root'),
+                      button: h(
+                        'button',
+                        {
+                          className: `gwb-btn sm ctl${pickedParts.length > 0 ? ' on' : ''}`,
+                          title: tt('log.filtersHint'),
+                          'aria-label': tt('log.filters'),
+                        },
+                        `${tt('log.filters')} ▾`,
                       ),
-                    ),
+                    },
+                    ...filterMenuRows(),
                   ),
                   h(
                     Menu,
@@ -3626,7 +3982,8 @@ window.__ModuleLoader__.load({
                       { className: 'gwb-qchips' },
                       // One chip per part, because one chip is what one
                       // condition costs: a filter nobody can take off again
-                      // is a trap.
+                      // is a trap. A picked field wears its plain name, not
+                      // the `author:` spelling the box would need.
                       ...parsed.parts.map((part, index) =>
                         h(
                           'span',
@@ -3635,26 +3992,43 @@ window.__ModuleLoader__.load({
                             className: `gwb-fchip gwb-qchip${part.kind === 'free' ? ' free' : ''}${part.kind === 'term' && part.value === '' ? ' pending' : ''}`,
                             title: part.kind === 'free' ? tt('log.filterFree') : tt(`log.field.${part.key}`),
                           },
-                          part.kind === 'free' ? null : h('span', { className: 'gwb-qchip-key' }, `${part.key}:`),
-                          h('span', { className: 'gwb-fchip-text' }, part.kind === 'term' && part.value === '' ? tt('log.filterPending') : part.value),
+                          part.kind === 'free' ? null : h('span', { className: 'gwb-qchip-key' }, tt(`log.field.${part.key}`)),
+                          h(
+                            'span',
+                            { className: 'gwb-fchip-text' },
+                            part.kind === 'term' && part.value === ''
+                              ? tt('log.filterPending')
+                              : part.key === 'date'
+                                ? logDateLabel(part.value)
+                                : part.value,
+                          ),
                           h(
                             'button',
                             {
                               className: 'gwb-fchip-x',
                               title: tt('log.removeFilter'),
                               'aria-label': tt('log.removeFilter'),
-                              onClick: () =>
+                              onClick: () => {
+                                if (index < pickedParts.length) {
+                                  setFilters((current) => ({ ...current, [part.key]: '' }))
+                                  return
+                                }
+                                const typedIndex = index - pickedParts.length
                                 setQuery(
-                                  parsed.parts
-                                    .filter((_, position) => position !== index)
+                                  typed.parts
+                                    .filter((_, position) => position !== typedIndex)
                                     .map((entry) => entry.raw)
                                     .join(' '),
-                                ),
+                                )
+                              },
                             },
                             h(GitIcons.close, { size: 11 }),
                           ),
                         ),
                       ),
+                      parsed.parts.length > 1
+                        ? h('button', { className: 'gwb-qclear', onClick: clearFilters }, tt('log.clearAll'))
+                        : null,
                     )
                   : null,
                 selected.length > 0 ? selectionBar() : null,
@@ -3666,7 +4040,7 @@ window.__ModuleLoader__.load({
                   pair
                     ? compareBody()
                     : sorted.length === 0
-                      ? h('div', { className: 'gwb-loading' }, query.trim() !== '' ? tt('log.noMatch') : onlySelected ? tt('log.noSelectedMatch') : filePath ? tt('log.fileEmpty') : tt('log.none'))
+                      ? h('div', { className: 'gwb-loading' }, hasFilters ? tt('log.noMatch') : onlySelected ? tt('log.noSelectedMatch') : filePath ? tt('log.fileEmpty') : tt('log.none'))
                       : groupBy === 'none'
                         ? logRows(sorted)
                         : groupedRows(),

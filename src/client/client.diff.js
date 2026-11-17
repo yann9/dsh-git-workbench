@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     const React = require('react')
     const h = React.createElement
-    const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
+    const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
     const { Api, COMMIT_KIND, closeDiffView, config, diffTargetStore, openDiff, openTab, statusColor, useRepoChanges, useSessionDirectory } = kit
     const { Badge, GitIcons, IconBtn, Menu, MenuRow, Safe, copyText, iconMarkup, openContextMenu, reportError, showConfirm, showToast } = require('@yann9/dsh-git-workbench/client.ui.js')
@@ -264,11 +264,17 @@ window.__ModuleLoader__.load({
       return { additions, deletions }
     }
 
-    function cellNumber(value, extraClass) {
-      return h('div', { className: `gwb-dc ln${extraClass ? ` ${extraClass}` : ''}` }, value ?? '')
+    /** A cell state as a class: the change type tints the line number and gutter. */
+    const stateClass = (state) => (state === 'add' || state === 'del' ? ` ${state}` : '')
+
+    function cellNumber(value, state) {
+      return h('div', { className: `gwb-dc ln${stateClass(state)}` }, value ?? '')
     }
 
-    /** The change bar: 3px state stripe plus the line-staging click target. */
+    /**
+     * The stage gutter: the row's change tint, and the line-staging click target
+     * where a click is wired up.
+     */
     function cellBar({ type, cellKey, selectable, onToggle, hint }) {
       return h('div', {
         className: `gwb-dc bar${type === 'add' ? ' add' : type === 'del' ? ' del' : ''}${selectable ? '' : ' inert'}`,
@@ -348,20 +354,170 @@ window.__ModuleLoader__.load({
       return segments
     }
 
+    // A round-capped stroke chevron: the text glyphs ←/→ come from the code
+    // font and read as punctuation, not as a control.
+    function chevronIcon(direction) {
+      const d =
+        direction === 'left'
+          ? 'M7.5 2.5 4 6l3.5 3.5'
+          : direction === 'down'
+            ? 'M2.5 4.5 6 8l3.5-3.5'
+            : 'M4.5 2.5 8 6 4.5 9.5'
+      return h(
+        'svg',
+        { viewBox: '0 0 12 12', width: 12, height: 12, fill: 'none', 'aria-hidden': 'true', focusable: 'false' },
+        h('path', { d, stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+      )
+    }
+
+    /**
+     * Paint the divider bands: one quadrilateral per change run, joining the
+     * run's rows in the left pane to its rows in the right. The panes are
+     * independent (each lists only its own lines), so the two sides of a run
+     * almost never share a y range — the curve carries the difference, the way
+     * IDEA's DiffDrawUtil.makeCurve does. A side missing from the run has no
+     * rows at all; its boundary is the gap rule, widened to a 2px sliver.
+     */
+    function drawDiffBands(layer, body) {
+      if (!layer || !body) return
+      layer.textContent = ''
+      const blocks = body.querySelectorAll('.gwb-split')
+      if (blocks.length === 0) return
+      const origin = body.getBoundingClientRect()
+      const offsetX = origin.left - body.scrollLeft
+      const offsetY = origin.top - body.scrollTop
+      const ns = 'http://www.w3.org/2000/svg'
+      const contentW = Math.max(1, Math.ceil(body.scrollWidth))
+      const svg = document.createElementNS(ns, 'svg')
+      svg.setAttribute('class', 'gwb-diffbands')
+      svg.setAttribute('width', String(contentW))
+      svg.setAttribute('height', String(Math.max(1, Math.ceil(body.scrollHeight))))
+      svg.setAttribute('aria-hidden', 'true')
+      const defs = document.createElementNS(ns, 'defs')
+      const gradient = document.createElementNS(ns, 'linearGradient')
+      gradient.setAttribute('id', 'gwb-band-mod')
+      gradient.setAttribute('x1', '0')
+      gradient.setAttribute('x2', '1')
+      for (const [offset, cls] of [
+        ['0', 'del'],
+        ['1', 'add'],
+      ]) {
+        const stop = document.createElementNS(ns, 'stop')
+        stop.setAttribute('offset', offset)
+        stop.setAttribute('class', cls)
+        gradient.appendChild(stop)
+      }
+      defs.appendChild(gradient)
+      svg.appendChild(defs)
+      const paint = (d, cls) => {
+        const path = document.createElementNS(ns, 'path')
+        path.setAttribute('class', cls)
+        path.setAttribute('d', d)
+        svg.appendChild(path)
+      }
+      for (const block of blocks) {
+        const divider = block.querySelector('.gwb-splitdivider')
+        if (!divider) continue
+        const rect = divider.getBoundingClientRect()
+        // Both edges sit inside the divider's own hairline borders.
+        const bx0 = rect.left - offsetX + 1
+        const bx1 = rect.right - offsetX - 1
+        const w = bx1 - bx0
+        const runs = new Map()
+        for (const row of block.querySelectorAll('.gwb-drow[data-run]')) {
+          const key = row.dataset.run
+          let run = runs.get(key)
+          if (!run) {
+            run = { left: [], right: [] }
+            runs.set(key, run)
+          }
+          const box = row.getBoundingClientRect()
+          run[row.dataset.col === 'left' ? 'left' : 'right'].push({ y0: box.top - offsetY, y1: box.bottom - offsetY })
+        }
+        // The missing side's boundary: its gap rule marks where its lines would sit.
+        for (const marker of block.querySelectorAll('.gwb-gapmark[data-run]')) {
+          const run = runs.get(marker.dataset.run)
+          if (!run) continue
+          const y = marker.getBoundingClientRect().top - offsetY
+          if (marker.closest('.gwb-splitcol')?.dataset.col === 'left') run.gapLeft = y
+          else run.gapRight = y
+        }
+        for (const run of runs.values()) {
+          const { left, right } = run
+          const kind = left.length === 0 ? 'add' : right.length === 0 ? 'del' : 'mod'
+          const extentOf = (boxes, gap) =>
+            boxes.length === 0
+              ? [gap ?? 0, gap ?? 0]
+              : [Math.min(...boxes.map((box) => box.y0)), Math.max(...boxes.map((box) => box.y1))]
+          let [a0, a1] = extentOf(left, run.gapLeft)
+          let [b0, b1] = extentOf(right, run.gapRight)
+          // An empty side is a 2px sliver on its boundary, not a zero-height shape.
+          if (a1 - a0 < 2) [a0, a1] = [a0 - 1, a0 + 1]
+          if (b1 - b0 < 2) [b0, b1] = [b0 - 1, b0 + 1]
+          const c1 = bx0 + w * 0.3
+          const c2 = bx0 + w * 0.7
+          paint(
+            `M${bx0} ${a0}C${c1} ${a0} ${c2} ${b0} ${bx1} ${b0}L${bx1} ${b1}C${c2} ${b1} ${c1} ${a1} ${bx0} ${a1}Z`,
+            `gwb-diffband ${kind}`,
+          )
+          // The same-coloured midline keeps the band and its outline one shape.
+          const mid = (a0 + a1) / 2
+          const midB = (b0 + b1) / 2
+          paint(`M${bx0} ${mid}C${c1} ${mid} ${c2} ${midB} ${bx1} ${midB}`, `gwb-diffbandline ${kind}`)
+        }
+      }
+      layer.appendChild(svg)
+    }
+
+    /**
+     * A collapsed unchanged run: one filled band inside the single column, with
+     * the chevron at the far end — the IDE's "N unchanged lines" control, not
+     * another hunk rule. Split mode gets one such band per pane (columnFold).
+     */
     function foldBand(segment, options) {
       return h(
         'div',
-        { key: `fold:${segment.key}`, className: 'gwb-drow gwb-foldrow', 'data-mode': options.sideBySide ? 'side' : 'unified' },
+        { key: `fold:${segment.key}`, className: 'gwb-drow gwb-foldrow', 'data-mode': 'unified' },
         h(
           'div',
           {
+            key: 'band',
             className: 'gwb-foldspan',
             title: tt('diff.expand'),
+            role: 'button',
+            tabIndex: 0,
             onClick: () => options.onToggleFold && options.onToggleFold(segment.key),
+            onKeyDown: (event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return
+              event.preventDefault()
+              options.onToggleFold && options.onToggleFold(segment.key)
+            },
           },
-          h('span', { className: 'gwb-hunkmark' }, '⋯'),
-          h('span', null, tt('diff.foldedLines', { count: segment.count })),
+          h('span', { className: 'gwb-foldtext' }, tt('diff.foldedLines', { count: segment.count })),
+          h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }, chevronIcon('down')),
         ),
+      )
+    }
+
+    /** The same folded run inside one pane of the split view. */
+    function columnFold(segment, options, col) {
+      return h(
+        'div',
+        {
+          key: `fold:${col}:${segment.key}`,
+          className: 'gwb-foldspan gwb-foldcol',
+          title: tt('diff.expand'),
+          role: 'button',
+          tabIndex: 0,
+          onClick: () => options.onToggleFold && options.onToggleFold(segment.key),
+          onKeyDown: (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            options.onToggleFold && options.onToggleFold(segment.key)
+          },
+        },
+        h('span', { className: 'gwb-foldtext' }, tt('diff.foldedLines', { count: segment.count })),
+        h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }, chevronIcon('down')),
       )
     }
 
@@ -399,7 +555,8 @@ window.__ModuleLoader__.load({
     }
 
     function unifiedRows(items, hunkIndex, options) {
-      const marks = unifiedMarks(items)
+      const wordOn = options.highlight !== 'line' && options.highlight !== 'none'
+      const marks = wordOn ? unifiedMarks(items) : new Map()
       let previousContext = true
       return items.map(({ line, index }) => {
         const cellKey = `${options.side}:${hunkIndex}:${index}`
@@ -419,21 +576,101 @@ window.__ModuleLoader__.load({
             'data-side': options.side,
             'data-file-index': options.fileIndex,
           },
-          cellNumber(line.oldLine),
-          cellNumber(line.newLine),
+          cellNumber(line.oldLine, line.type),
+          cellNumber(line.newLine, line.type),
           cellBar({ type: line.type, cellKey, selectable, onToggle: options.onToggle, hint: options.stageHint }),
-          cellCode(line, { type: line.type, mark: marks.get(index) ?? null, lang: options.lang, cellKey, side: options.side, lineIndex: index, fileIndex: options.fileIndex }),
+          cellCode(line, { type: line.type, mark: wordOn ? (marks.get(index) ?? null) : null, lang: options.lang, cellKey, side: options.side, lineIndex: index, fileIndex: options.fileIndex }),
         )
       })
     }
 
-    function sideRows(items, hunkIndex, options) {
-      const pairs = []
+    /**
+     * One line of one pane. A side-by-side pane lists only its own version's
+     * lines, so the row carries one line number and never a placeholder.
+     */
+    function sideRow(entry, col, hunkIndex, options, extra) {
+      const { line } = entry
+      const type = line.type
+      const cellKey = `${options.side}:${hunkIndex}:${entry.index}`
+      const selected = !options.readOnly && options.selection.has(cellKey)
+      const selectable = !options.readOnly && type !== 'context'
+      const number =
+        type === 'del' ? line.oldLine : type === 'add' ? line.newLine : col === 'left' ? line.oldLine : (line.newLine ?? line.oldLine)
+      const rowCls = `gwb-drow${selected ? ' selected' : ''}${type === 'add' ? ' add-row' : type === 'del' ? ' del-row' : ''}${extra?.change ? ' gwb-change' : ''}`
+      const cells = [
+        cellNumber(number, type),
+        cellBar({ type, cellKey, selectable, onToggle: options.onToggle, hint: options.stageHint }),
+        cellCode(line, {
+          type,
+          mark: extra?.mark ?? null,
+          lang: options.lang,
+          cellKey,
+          side: options.side,
+          lineIndex: entry.index,
+          fileIndex: options.fileIndex,
+        }),
+      ]
+      // One arrow per change run, on the pane that owns the run's lines and
+      // overhanging into the divider: the whole block moves to the other side.
+      if (extra?.arrow) {
+        cells.push(
+          h(
+            'button',
+            {
+              key: 'arrow',
+              className: 'gwb-diffarrow',
+              type: 'button',
+              title: extra.blockTitle,
+              'aria-label': extra.blockTitle,
+              onClick: (event) => {
+                event.stopPropagation()
+                extra.blockAction({ hunk: hunkIndex, lines: extra.runLines })
+              },
+            },
+            chevronIcon(options.blockArrow),
+          ),
+        )
+      }
+      return h(
+        'div',
+        {
+          key: cellKey,
+          className: rowCls,
+          'data-mode': 'side',
+          'data-col': col,
+          'data-run': extra?.runKey,
+          'data-hunk': hunkIndex,
+          'data-line': entry.index,
+          'data-side': options.side,
+          'data-file-index': options.fileIndex,
+        },
+        cells,
+      )
+    }
+
+    /** Where the other pane has lines this one lacks: one rule, no blank rows. */
+    function gapMark(runKey, kind) {
+      return h('div', {
+        key: `gap:${runKey}`,
+        className: `gwb-gapmark ${kind}`,
+        'data-run': runKey,
+        'aria-hidden': 'true',
+      })
+    }
+
+    /**
+     * Both panes of a side-by-side hunk, as two independent columns (IDEA's
+     * unpadded panes). A chunk that exists on only one side leaves no blank
+     * rows on the other: the missing pane keeps its own lines and gets a single
+     * gap rule where the counterpart's lines would sit, so line numbers stay
+     * true to each file. drawDiffBands() bridges the two columns per run.
+     */
+    function sideColumns(items, hunkIndex, options, runPrefix = String(hunkIndex)) {
+      const slots = []
       let cursor = 0
       while (cursor < items.length) {
-        const item = items[cursor]
-        if (item.line.type === 'context') {
-          pairs.push({ left: item, right: item })
+        if (items[cursor].line.type === 'context') {
+          slots.push({ item: items[cursor] })
           cursor += 1
           continue
         }
@@ -447,89 +684,90 @@ window.__ModuleLoader__.load({
           adds.push(items[cursor])
           cursor += 1
         }
-        const count = Math.max(dels.length, adds.length)
-        for (let i = 0; i < count; i += 1) pairs.push({ left: dels[i] ?? null, right: adds[i] ?? null })
+        slots.push({ dels, adds })
       }
-      let previousContext = true
-      return pairs.map((pair, pairIndex) => {
-        const leftKey = pair.left ? `${options.side}:${hunkIndex}:${pair.left.index}` : null
-        const rightKey = pair.right ? `${options.side}:${hunkIndex}:${pair.right.index}` : null
-        const selected =
-          !options.readOnly && ((leftKey && options.selection.has(leftKey)) || (rightKey && options.selection.has(rightKey)))
-
-        // Word-level diff for a replacement pair (JetBrains' intra-line
-        // highlight): mark only the words that actually changed.
-        let leftMark = null
-        let rightMark = null
-        if (pair.left && pair.right && pair.left.line.text !== pair.right.line.text) {
-          const ranges = wordDiffRanges(pair.left.line.text, pair.right.line.text)
-          if (ranges.left.length > 0) leftMark = ranges.left
-          if (ranges.right.length > 0) rightMark = ranges.right
+      const wordOn = options.highlight !== 'line' && options.highlight !== 'none'
+      const left = []
+      const right = []
+      let runIndex = 0
+      for (const slot of slots) {
+        if (slot.item) {
+          left.push(sideRow(slot.item, 'left', hunkIndex, options, null))
+          right.push(sideRow(slot.item, 'right', hunkIndex, options, null))
+          continue
         }
-
-        const leftCells = []
-        const rightCells = []
-        for (const [slot, cell, bucket] of [
-          ['left', pair.left, leftCells],
-          ['right', pair.right, rightCells],
-        ]) {
-          if (!cell) {
-            bucket.push(cellNumber(null, 'pad'))
-            bucket.push(h('div', { key: `${pairIndex}-${slot}-bar`, className: 'gwb-dc bar pad' }))
-            bucket.push(h('div', { key: `${pairIndex}-${slot}-code`, className: 'gwb-dc code pad' }))
-            continue
+        const { dels, adds } = slot
+        // Run keys must be unique per hunk: a hunk is rendered as several
+        // segments (fold bands split it), and drawDiffBands groups by this key.
+        const runKey = `${runPrefix}-${runIndex}`
+        runIndex += 1
+        // Word-level diff for a replacement run (JetBrains' intra-line
+        // highlight): pair a deletion with the addition that replaces it.
+        const leftMark = new Map()
+        const rightMark = new Map()
+        if (wordOn) {
+          for (let i = 0; i < Math.min(dels.length, adds.length); i += 1) {
+            if (dels[i].line.text === adds[i].line.text) continue
+            const ranges = wordDiffRanges(dels[i].line.text, adds[i].line.text)
+            if (ranges.left.length > 0) leftMark.set(dels[i].index, ranges.left)
+            if (ranges.right.length > 0) rightMark.set(adds[i].index, ranges.right)
           }
-          const type = cell.line.type
-          const number = type === 'del' ? cell.line.oldLine : type === 'add' ? cell.line.newLine : cell.line.newLine ?? cell.line.oldLine
-          const selectable = !options.readOnly && type !== 'context'
-          bucket.push(cellNumber(number))
-          bucket.push(cellBar({ type, cellKey: slot === 'left' ? leftKey : rightKey, selectable, onToggle: options.onToggle, hint: options.stageHint }))
-          bucket.push(
-            cellCode(cell.line, {
-              type,
-              mark: slot === 'left' ? leftMark : rightMark,
-              lang: options.lang,
-              cellKey: slot === 'left' ? leftKey : rightKey,
-              side: options.side,
-              lineIndex: cell.index,
-              fileIndex: options.fileIndex,
-            }),
-          )
         }
-        // The centre gutter bridges the pair: green for an addition, red for a
-        // deletion, a blend for a replacement, plain between context rows. It
-        // is what makes the two panes read as one comparison.
-        const pairKind = !pair.left ? 'add' : !pair.right ? 'del' : pair.left.line.type === 'del' && pair.right.line.type === 'add' ? 'mod' : ''
-        const cells = [...leftCells, h('div', { key: `${pairIndex}-con`, className: `gwb-dc con${pairKind ? ` ${pairKind}` : ''}` }), ...rightCells]
-        const kind = pair.left?.line?.type ?? pair.right?.line?.type
-        const startsChange = Boolean(kind && kind !== 'context' && previousContext)
-        previousContext = !kind || kind === 'context'
-        const rowCls = `gwb-drow${selected ? ' selected' : ''}${kind === 'add' ? ' add-row' : kind === 'del' ? ' del-row' : ''}${startsChange ? ' gwb-change' : ''}`
-        return h(
-          'div',
-          {
-            key: `${leftKey ?? ''}|${rightKey ?? ''}|${pairIndex}`,
-            className: rowCls,
-            'data-mode': 'side',
-            'data-hunk': hunkIndex,
-            'data-line': pair.left?.index ?? pair.right?.index,
-            'data-side': options.side,
-            'data-file-index': options.fileIndex,
-          },
-          cells,
+        // The arrow sits on the pane that owns the run's lines, centred in it.
+        const host = adds.length > 0 ? 'right' : 'left'
+        const hostCount = adds.length > 0 ? adds.length : dels.length
+        const arrowAt = Math.floor((hostCount - 1) / 2)
+        const runLines = [...dels, ...adds].map((entry) => entry.index)
+        const fields = { runKey, runLines, blockAction: options.blockAction, blockTitle: options.blockTitle }
+        if (dels.length === 0) left.push(gapMark(runKey, 'add'))
+        if (adds.length === 0) right.push(gapMark(runKey, 'del'))
+        dels.forEach((entry, i) =>
+          left.push(
+            sideRow(entry, 'left', hunkIndex, options, {
+              ...fields,
+              mark: leftMark.get(entry.index) ?? null,
+              change: host === 'left' && i === 0,
+              arrow: host === 'left' && i === arrowAt,
+            }),
+          ),
         )
-      })
+        adds.forEach((entry, i) =>
+          right.push(
+            sideRow(entry, 'right', hunkIndex, options, {
+              ...fields,
+              mark: rightMark.get(entry.index) ?? null,
+              change: host === 'right' && i === 0,
+              arrow: host === 'right' && i === arrowAt,
+            }),
+          ),
+        )
+      }
+      return { left, right }
     }
 
-    /**
-     * Unchanged-line band between two hunks, like the IDE's `⋮ N 行` separator.
-     * Derived from the hunk headers, so no extra git call is needed.
-     */
-    function hunkGap(previous, hunk) {
-      if (!previous) return null
-      const count = hunk.oldStart - (previous.oldStart + previous.oldLines)
-      if (count <= 0) return null
-      return h('div', { key: `gap${previous.oldStart}`, className: 'gwb-hunkgap' }, `⋮ ${tt('diff.unchanged', { count })}`)
+    /** One hunk as two pane columns joined by the divider track. */
+    function sideBlock(hunk, hunkIndex, options) {
+      const left = []
+      const right = []
+      let segmentIndex = 0
+      for (const segment of foldSegments(hunk.lines, hunkIndex, options)) {
+        if (segment.type === 'fold') {
+          left.push(columnFold(segment, options, 'left'))
+          right.push(columnFold(segment, options, 'right'))
+          continue
+        }
+        const columns = sideColumns(segment.items, hunkIndex, options, `${hunkIndex}.${segmentIndex}`)
+        segmentIndex += 1
+        left.push(...columns.left)
+        right.push(...columns.right)
+      }
+      return h(
+        'div',
+        { key: `side${hunkIndex}`, className: 'gwb-split', 'data-hunk': hunkIndex },
+        h('div', { key: 'l', className: 'gwb-splitcol left', 'data-col': 'left' }, left),
+        h('div', { key: 'd', className: 'gwb-splitdivider', 'aria-hidden': 'true' }),
+        h('div', { key: 'r', className: 'gwb-splitcol right', 'data-col': 'right' }, right),
+      )
     }
 
     /** Number of change blocks (not hunks) — the IDE's "N changes" counter. */
@@ -546,25 +784,34 @@ window.__ModuleLoader__.load({
     }
 
     /** @returns {import('./types').Element[]} one hunk: header + rows */
-    function hunkBlock(hunk, hunkIndex, options) {
+    function hunkBlock(hunk, hunkIndex, options, hidden = 0, solo = false) {
       const range = hunk.header.replace(/^@@\s*/, '').replace(/\s*@@.*$/, '')
+      // One thin band per hunk: the skipped-line count, the section and the
+      // hunk action share it, so a hunk boundary is not two rules in a row.
       const header = h(
         'div',
-        { key: `h${hunkIndex}`, className: 'gwb-hunkhead', 'data-hunk': hunkIndex },
+        { key: `h${hunkIndex}`, className: 'gwb-hunkhead', 'data-hunk': hunkIndex, title: range },
         h('span', { className: 'gwb-hunkmark' }, '⋮'),
-        h('span', { className: 'gwb-hunkrange' }, range),
+        hidden > 0 ? h('span', { className: 'gwb-hunkgapcount' }, tt('diff.unchanged', { count: hidden })) : null,
         hunk.section ? h('span', { className: 'gwb-hunksection' }, hunk.section) : null,
         options.hunkAction && !options.readOnly
           ? h('button', { className: 'gwb-btn sm ctl gwb-hunkbtn', onClick: () => options.hunkAction(hunkIndex) }, options.hunkLabel)
           : null,
       )
-      const rows = [header]
+      // A lone hunk that starts at the top of the file has nothing to annotate:
+      // its one-line band was a stray rule above line 1. Its action is the
+      // section's action anyway, so the band goes.
+      const rows = solo && hidden === 0 && !hunk.section ? [] : [header]
+      if (options.sideBySide) {
+        rows.push(sideBlock(hunk, hunkIndex, options))
+        return rows
+      }
       for (const segment of foldSegments(hunk.lines, hunkIndex, options)) {
         if (segment.type === 'fold') {
           rows.push(foldBand(segment, options))
           continue
         }
-        rows.push(...(options.sideBySide ? sideRows(segment.items, hunkIndex, options) : unifiedRows(segment.items, hunkIndex, options)))
+        rows.push(...unifiedRows(segment.items, hunkIndex, options))
       }
       return rows
     }
@@ -582,12 +829,8 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         { key, className: 'gwb-diffside' },
-        h('span', null),
-        h('span', null),
         h('span', { className: 'gwb-diffside-left' }, labels.left),
         h('span', { className: 'gwb-diffside-con' }),
-        h('span', null),
-        h('span', null),
         h('span', { className: 'gwb-diffside-right' }, labels.right),
       )
     }
@@ -652,16 +895,28 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false)
       const [selection, setSelection] = useState(() => new Set())
       const [blame, setBlame] = useState(null)
-      const [sideBySide, setSideBySide] = useState(() => {
+      // `null` keeps the pane on its automatic choice: the configured default,
+      // and unified when the pane is too narrow to split. Picking a mode once
+      // stores it and the width stops overriding the reader.
+      const [sideChoice, setSideChoice] = useState(() => {
         const stored = localStorage.getItem('dsh-git.side')
-        if (stored !== null) return stored !== '0'
-        return config().diffSideBySide !== false
+        return stored === null ? null : stored !== '0'
       })
       // Hunk indexes come from a whitespace-filtered diff, so nothing from this
       // mode may be staged or reverted: the host would re-read the unfiltered
       // diff and land on the wrong lines.
       const [ignoreWhitespace, setIgnoreWhitespace] = useState(() => localStorage.getItem('dsh-git.ws') === '1')
       const diffReadOnly = readOnly || ignoreWhitespace
+      // Wrap and intra-line marking are reading preferences, not revisions:
+      // they never change which hunks git returned.
+      const [wrapChoice, setWrapChoice] = useState(() => {
+        const stored = localStorage.getItem('dsh-git.wrap')
+        return stored === null ? null : stored === '1'
+      })
+      const [highlight, setHighlight] = useState(() => {
+        const stored = localStorage.getItem('dsh-git.highlight')
+        return stored === 'word' || stored === 'line' || stored === 'none' ? stored : 'word'
+      })
       const [activeHunk, setActiveHunk] = useState(0)
       const [expandedFolds, setExpandedFolds] = useState(() => new Set())
       const [expandAll, setExpandAll] = useState(false)
@@ -675,6 +930,51 @@ window.__ModuleLoader__.load({
         void reloadWorking()
       })
       const bodyRef = useRef(null)
+      const bandLayerRef = useRef(null)
+      // Remeasured when the pane appears: a hidden pane reports zero widths,
+      // and the columns must not be frozen at the fallback size.
+      const [bodyWidth, setBodyWidth] = useState(0)
+      useEffect(() => {
+        const body = bodyRef.current
+        if (!body || typeof ResizeObserver !== 'function') return undefined
+        const observer = new ResizeObserver((entries) => {
+          const width = Math.round(entries[0]?.contentRect?.width ?? 0)
+          setBodyWidth((previous) => (previous === width ? previous : width))
+        })
+        observer.observe(body)
+        return () => observer.disconnect()
+      }, [])
+      // The divider bands are geometry: redraw them after every render (folds,
+      // modes, wrapping) and whenever the pane itself is resized.
+      const drawBands = useRef(() => {})
+      drawBands.current = () => drawDiffBands(bandLayerRef.current, bodyRef.current)
+      useLayoutEffect(() => {
+        const frame = requestAnimationFrame(() => drawBands.current())
+        return () => cancelAnimationFrame(frame)
+      })
+      useEffect(() => {
+        const body = bodyRef.current
+        if (!body) return undefined
+        let frame = 0
+        const flush = () => {
+          frame = 0
+          drawBands.current()
+        }
+        const schedule = () => {
+          if (!frame) frame = requestAnimationFrame(flush)
+        }
+        let observer = null
+        if (typeof ResizeObserver === 'function') {
+          observer = new ResizeObserver(schedule)
+          observer.observe(body)
+        }
+        window.addEventListener('resize', schedule)
+        return () => {
+          if (frame) cancelAnimationFrame(frame)
+          observer?.disconnect()
+          window.removeEventListener('resize', schedule)
+        }
+      }, [])
       // Direction to land on after a change-navigation file switch: the next
       // file's first change, or the previous file's last change.
       const pendingLand = useRef(null)
@@ -691,7 +991,34 @@ window.__ModuleLoader__.load({
       const targetKey = JSON.stringify(target ?? null)
       const rootRef = useRef(null)
       const focusTurnRef = useRef(-1)
-      const split = sideBySide && wide
+      const sideBySide = sideChoice === null ? config().diffSideBySide !== false : sideChoice
+      // An untouched pane follows its width; a stored or clicked choice wins,
+      // even in a narrow panel — it is the reader's call to make.
+      const split = sideChoice === null ? sideBySide && wide : sideBySide
+      // A split diff always wraps. Two code columns cannot both stay in view
+      // once one of them is as wide as its longest line: the other one is
+      // pushed off-screen, which is worse than a wrapped line. The unwrapped
+      // reading mode is for the single column of the unified view.
+      const wrap = split ? true : wrapChoice === null ? config().diffWrap !== false : wrapChoice
+      // Unwrapped rows are separate grids: measure the widest line once and
+      // give every row that same track width, or the code drifts and the
+      // header band no longer covers the scrolled content.
+      useLayoutEffect(() => {
+        const body = bodyRef.current
+        if (!body) return
+        if (wrap || bodyWidth === 0) {
+          body.style.removeProperty('--gwb-uw')
+          body.style.removeProperty('--gwb-codew')
+          return
+        }
+        let unified = 0
+        for (const row of body.querySelectorAll('.gwb-drow[data-mode="unified"]')) {
+          unified = Math.max(unified, row.children[3]?.scrollWidth ?? 0)
+        }
+        const uw = Math.max(160, Math.ceil(unified) + 2)
+        body.style.setProperty('--gwb-uw', `${uw}px`)
+        body.style.setProperty('--gwb-codew', `${104 + uw}px`)
+      }, [bodyWidth, payload, commit, turn, blame, entries, index, expandedFolds, expandAll, wrap])
 
       // The conversation view mounts this root in a page that also hosts the
       // sticky composer; a 100%-tall root then runs underneath the input. Own
@@ -894,13 +1221,13 @@ window.__ModuleLoader__.load({
         return state !== 'untracked' && state !== 'deleted' && state !== 'conflicted'
       }
 
-      /** Rows for one section: hunk gaps + hunk blocks, in IDE order. */
+      /** Rows for one section: hunk blocks, in IDE order. */
       function renderHunks(hunks, options) {
         const nodes = []
         hunks.forEach((hunk, hunkIndex) => {
-          const gap = hunkGap(hunks[hunkIndex - 1], hunk)
-          if (gap) nodes.push(gap)
-          nodes.push(...hunkBlock(hunk, hunkIndex, options))
+          const previous = hunks[hunkIndex - 1]
+          const hidden = previous ? hunk.oldStart - (previous.oldStart + previous.oldLines) : 0
+          nodes.push(...hunkBlock(hunk, hunkIndex, options, hidden, hunks.length === 1))
         })
         return nodes
       }
@@ -983,7 +1310,11 @@ window.__ModuleLoader__.load({
             if (Math.abs(scroller.scrollTop - jumpScroll.current) <= 1) return
             jumpScroll.current = -1
           }
-          const heads = view.querySelectorAll('.gwb-change')
+          // Two panes share one scroller but not one row grid: document order
+          // interleaves the columns, so order the heads by where they sit.
+          const heads = [...view.querySelectorAll('.gwb-change')].sort(
+            (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top,
+          )
           if (heads.length === 0) {
             changeCursor.current = -1
             return
@@ -1009,8 +1340,12 @@ window.__ModuleLoader__.load({
           // though it cannot reach the top line.
           const max = scroller.scrollHeight - scroller.clientHeight
           if (max > 0 && max - scroller.scrollTop <= 1) current = heads.length - 1
+          // Above the first change the reader is on it, not before the file:
+          // otherwise the counter says 1/N while the cursor sits at -1, and the
+          // first jump leaves it where it was.
+          if (current < 0) current = 0
           changeCursor.current = current
-          setActiveHunk(current < 0 ? 0 : current)
+          setActiveHunk(current)
         }
         const onScroll = () => {
           if (timer === 0) timer = window.setTimeout(measure, 16)
@@ -1031,7 +1366,11 @@ window.__ModuleLoader__.load({
         if (!mode || !payloadSettled) return
         pendingLand.current = null
         const body = bodyRef.current
-        const heads = body ? [...body.querySelectorAll('.gwb-change')] : []
+        const heads = body
+          ? [...body.querySelectorAll('.gwb-change')].sort(
+              (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top,
+            )
+          : []
         if (heads.length === 0) return
         const at = mode === 'last' ? heads.length - 1 : 0
         changeCursor.current = at
@@ -1265,11 +1604,24 @@ window.__ModuleLoader__.load({
       }
 
       function toggleSideBySide() {
-        setSideBySide((value) => {
-          const next = !value
+        setSideChoice((value) => {
+          const next = value === null ? !(config().diffSideBySide !== false && wide) : !value
           localStorage.setItem('dsh-git.side', next ? '1' : '0')
           return next
         })
+      }
+
+      function toggleWrap() {
+        setWrapChoice((value) => {
+          const next = value === null ? !(config().diffWrap !== false) : !value
+          localStorage.setItem('dsh-git.wrap', next ? '1' : '0')
+          return next
+        })
+      }
+
+      function pickHighlight(mode) {
+        setHighlight(mode)
+        localStorage.setItem('dsh-git.highlight', mode)
       }
 
       function toggleIgnoreWhitespace() {
@@ -1288,7 +1640,10 @@ window.__ModuleLoader__.load({
       function changeHeads(side) {
         const node = bodyRef.current
         if (!node) return []
-        return [...node.querySelectorAll(`.gwb-change${side ? `[data-side="${side}"]` : ''}`)]
+        // The panes are separate columns, so sort by position, not by DOM order.
+        return [...node.querySelectorAll(`.gwb-change${side ? `[data-side="${side}"]` : ''}`)].sort(
+          (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top,
+        )
       }
 
       function currentChange(side) {
@@ -1489,7 +1844,7 @@ window.__ModuleLoader__.load({
           }
           return [h('div', { key: 'e', className: 'gwb-loading' }, tt('diff.none'))]
         }
-        const options = { sideBySide: split, selection, readOnly: diffReadOnly, onToggle: toggleLine, lang, expandedFolds, onToggleFold: toggleFold, expandAll }
+        const options = { sideBySide: split, selection, readOnly: diffReadOnly, onToggle: toggleLine, lang, expandedFolds, onToggleFold: toggleFold, expandAll, highlight }
         return [
           payload.staged
             ? h('div', { key: 's' }, [
@@ -1503,6 +1858,9 @@ window.__ModuleLoader__.load({
                   stageHint: tt('unstage.lines'),
                   hunkLabel: tt('unstage.hunk'),
                   hunkAction: (hunkIndex) => void stage({ file: entry.path, direction: 'unstage', mode: 'hunk', hunk: hunkIndex }),
+                  blockAction: (pick) => void stage({ file: entry.path, direction: 'unstage', mode: 'lines', selection: [pick] }),
+                  blockArrow: 'right',
+                  blockTitle: tt('diff.unstageBlock'),
                 }),
               ])
             : null,
@@ -1516,6 +1874,9 @@ window.__ModuleLoader__.load({
                   stageHint: tt('stage.lines'),
                   hunkLabel: tt('stage.hunk'),
                   hunkAction: (hunkIndex) => void stage({ file: entry.path, direction: 'stage', mode: 'hunk', hunk: hunkIndex }),
+                  blockAction: (pick) => void stage({ file: entry.path, direction: 'stage', mode: 'lines', selection: [pick] }),
+                  blockArrow: 'left',
+                  blockTitle: tt('diff.stageBlock'),
                 }),
               ])
             : null,
@@ -1540,7 +1901,7 @@ window.__ModuleLoader__.load({
         return [
           split ? sideHeader(sideLabels(source, null, revLabel), 'sh-commit') : null,
           h('div', { key: 't', className: 'gwb-section' }, tt(source === 'stash' ? 'diff.stashDiff' : 'log.commitDiff')),
-          ...renderHunks(commitEntry.hunks, { readOnly: true, sideBySide: split, onToggle: toggleLine, side: 'unstaged', lang, expandedFolds, onToggleFold: toggleFold, expandAll }),
+          ...renderHunks(commitEntry.hunks, { readOnly: true, sideBySide: split, onToggle: toggleLine, side: 'unstaged', lang, expandedFolds, onToggleFold: toggleFold, expandAll, highlight }),
         ]
       }
 
@@ -1576,6 +1937,7 @@ window.__ModuleLoader__.load({
                         expandedFolds,
                         onToggleFold: toggleFold,
                         expandAll,
+                        highlight,
                       }),
                     ],
             ),
@@ -1663,6 +2025,14 @@ window.__ModuleLoader__.load({
                   ignoreWhitespace ? tt(wide ? 'diff.ignoreWsReadonly' : 'diff.ignoreWsLocked') : tt(source === 'working' ? 'diff.readonlyMode' : source === 'stash' ? 'diff.readonlyStash' : 'diff.readonly'),
                 )
               : null,
+            // The whole-file decision belongs next to the file, not in the
+            // dense control strip under it.
+            !diffReadOnly && workingUnstaged
+              ? h('button', { className: 'gwb-btn sm ctl', title: tt('stage.fileHint'), onClick: () => void stage({ file: entry?.path, direction: 'stage', mode: 'file' }) }, tt('stage.file'))
+              : null,
+            !diffReadOnly && workingStaged
+              ? h('button', { className: 'gwb-btn sm ctl', title: tt('unstage.fileHint'), onClick: () => void stage({ file: entry?.path, direction: 'unstage', mode: 'file' }) }, tt('unstage.file'))
+              : null,
             source === 'working'
               ? h(
                   'button',
@@ -1716,14 +2086,56 @@ window.__ModuleLoader__.load({
                 tt('diff.ignoreWs'),
               )
             : null,
+          // Split always wraps (see above); the toggle belongs to the one
+          // column where an unwrapped line can actually stay in view.
+          split
+            ? null
+            : h(
+                'button',
+                {
+                  className: `gwb-btn sm ctl${wrap ? ' on' : ''}`,
+                  title: tt('diff.wrapHint'),
+                  'aria-pressed': wrap,
+                  onClick: toggleWrap,
+                },
+                tt('diff.wrap'),
+              ),
+          h(
+            Menu,
+            {
+              align: 'down',
+              width: 150,
+              title: tt('diff.highlightHint'),
+              button: h(
+                'button',
+                {
+                  className: `gwb-btn sm ctl${highlight !== 'word' ? ' on' : ''}`,
+                  title: tt('diff.highlightHint'),
+                  'aria-label': tt('diff.highlight'),
+                },
+                `${tt('diff.highlight')} ▾`,
+              ),
+            },
+            ...['word', 'line', 'none'].map((mode) =>
+              h(
+                MenuRow,
+                { key: mode, current: highlight === mode, onClick: () => pickHighlight(mode) },
+                h('span', { className: 'gwb-rowicon' }, highlight === mode ? h(GitIcons.check) : null),
+                h('span', { className: 'gwb-grow' }, tt(`diff.hl.${mode}`)),
+              ),
+            ),
+          ),
+          // A pressed toggle reads as a state; a label that swapped between
+          // 并排 and 统一 looked like two different buttons.
           h(
             'button',
             {
-              className: 'gwb-btn sm ctl',
-              title: wide ? undefined : tt('diff.narrowAuto'),
+              className: `gwb-btn sm ctl${split ? ' on' : ''}`,
+              title: sideChoice === null && !wide ? tt('diff.narrowAuto') : tt('diff.sideHint'),
+              'aria-pressed': split,
               onClick: toggleSideBySide,
             },
-            split ? tt('diff.side') : tt('diff.unified'),
+            tt('diff.side'),
           ),
           !diffReadOnly && selectedCount > 0
             ? [
@@ -1750,20 +2162,15 @@ window.__ModuleLoader__.load({
                 h('button', { key: 'b', className: 'gwb-btn sm ghost', onClick: () => setSelection(new Set()) }, tt('selection.clear')),
               ]
             : null,
-          !diffReadOnly
-            ? [
-                workingUnstaged ? h('button', { key: 'sf', className: 'gwb-btn sm ctl', style: { marginLeft: 'auto' }, onClick: () => void stage({ file: entry?.path, direction: 'stage', mode: 'file' }) }, tt('stage.file')) : null,
-                workingStaged ? h('button', { key: 'uf', className: 'gwb-btn sm ctl', onClick: () => void stage({ file: entry?.path, direction: 'unstage', mode: 'file' }) }, tt('unstage.file')) : null,
-              ]
-            : null,
         ),
         h(
           'div',
           {
-            className: `gwb-diffbody${config().diffWrap === false ? ' gwb-nowrap' : ''}`,
+            className: `gwb-diffbody${wrap ? '' : ' gwb-nowrap'}${highlight === 'none' ? ' gwb-codeflat' : ''}`,
             ref: bodyRef,
             onContextMenu: onRowContext,
           },
+          h('div', { key: 'bands', className: 'gwb-bandlayer', ref: bandLayerRef, 'aria-hidden': 'true' }),
           error
             ? h(
                 'div',
@@ -1804,7 +2211,9 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState(null)
       const [active, setActive] = useState(0)
-      const [showBase, setShowBase] = useState(false)
+      // The ancestor is part of the comparison, not an extra: show it as the
+      // third column by default, the way a merge tool does.
+      const [showBase, setShowBase] = useState(() => localStorage.getItem('dsh-git.mergeBase') !== '0')
       const [openRuns, setOpenRuns] = useState(() => new Set())
       // A block being hand-edited: { index, text }. Only one editor is open at
       // a time so the pane keeps a single place where typing lands.
@@ -1926,16 +2335,37 @@ window.__ModuleLoader__.load({
         regionRefs.current[next]?.scrollIntoView({ block: 'center' })
       }
 
+      function toggleMergeBase() {
+        setShowBase((value) => {
+          const next = !value
+          localStorage.setItem('dsh-git.mergeBase', next ? '1' : '0')
+          return next
+        })
+      }
+
       const mergeRow = (text, type, mark, key, number) =>
         h(
           'div',
           { key, className: `gwb-drow${type === 'add' ? ' add-row' : type === 'del' ? ' del-row' : ''}`, 'data-mode': 'merge' },
-          cellNumber(number ?? null),
+          cellNumber(number ?? null, type),
           cellBar({ type, cellKey: key, selectable: false }),
           cellCode({ text }, { type, mark, lang }),
         )
 
-      const sideColumn = (segment, side, start) => {
+      // Conflict sides have no honest line numbers — each side belongs to a
+      // different revision and the file as read here carries markers — so their
+      // numbers stay blank. The gutter is kept so the code lines up with the
+      // context rows above and below the block.
+      const mergeCellRow = (text, type, mark, key) =>
+        h(
+          'div',
+          { key, className: `gwb-drow${type === 'add' ? ' add-row' : type === 'del' ? ' del-row' : ''}`, 'data-mode': 'merge' },
+          cellNumber(null, type),
+          cellBar({ type, cellKey: key, selectable: false }),
+          cellCode({ text }, { type, mark, lang }),
+        )
+
+      const sideColumn = (segment, side) => {
         const lines = side === 'ours' ? segment.ours : segment.theirs
         const other = side === 'ours' ? segment.theirs : segment.ours
         // Index-wise pairing is what git's own side-by-side conflict view does;
@@ -1949,23 +2379,23 @@ window.__ModuleLoader__.load({
         return h(
           'div',
           { key: `${segment.index}-${side}`, className: 'gwb-merge-col' },
-          h(
-            'div',
-            { className: `gwb-merge-label ${side}` },
-            h('span', null, tt(side === 'ours' ? 'merge.ours' : 'merge.theirs')),
-            h('span', { className: 'gwb-grow' }),
-            readOnly
-              ? null
-              : h(
-                  'button',
-                  { className: 'gwb-link', disabled: busy, onClick: () => void decide(segment.index, side === 'ours' ? 'ours' : 'theirs') },
-                  tt(side === 'ours' ? 'merge.takeOurs' : 'merge.takeTheirs'),
-                ),
-          ),
-          lines.map((text, i) => mergeRow(text, side === 'ours' ? 'add' : 'del', marks[i], `${segment.index}-${side}-${i}`, start + i)),
+          // Narrow panes stack the columns, so the labels stay with them.
+          h('div', { className: `gwb-merge-label ${side}` }, h('span', null, tt(side === 'ours' ? 'merge.ours' : 'merge.theirs'))),
+          lines.map((text, i) => mergeCellRow(text, side === 'ours' ? 'add' : 'del', marks[i], `${segment.index}-${side}-${i}`)),
           lines.length === 0 ? h('div', { className: 'gwb-merge-agree' }, tt(side === 'ours' ? 'merge.oursEmpty' : 'merge.theirsEmpty')) : null,
         )
       }
+
+      // The common ancestor sits first, so the row reads base → ours → theirs
+      // and every side starts at the same height.
+      const baseColumn = (segment) =>
+        h(
+          'div',
+          { key: `${segment.index}-base`, className: 'gwb-merge-col base' },
+          h('div', { className: 'gwb-merge-label base' }, h('span', null, tt('merge.base'))),
+          segment.base.map((text, i) => mergeCellRow(text, '', null, `${segment.index}-base-${i}`)),
+          segment.base.length === 0 ? h('div', { className: 'gwb-merge-agree' }, tt('merge.baseEmpty')) : null,
+        )
 
       // Line numbers keep counting the file as it sits on disk, markers and all,
       // so a conflict row and the context above it read as one document.
@@ -2001,8 +2431,8 @@ window.__ModuleLoader__.load({
                     title: tt('diff.expand'),
                     onClick: () => setOpenRuns((previous) => new Set(previous).add(key)),
                   },
-                  h('span', { className: 'gwb-hunkmark' }, '⋯'),
-                  h('span', null, tt('diff.foldedLines', { count: hidden })),
+                  h('span', { className: 'gwb-foldtext' }, tt('diff.foldedLines', { count: hidden })),
+                  h('span', { className: 'gwb-foldchev', 'aria-hidden': 'true' }, chevronIcon('down')),
                 ),
               ),
               rows.slice(-3),
@@ -2010,10 +2440,6 @@ window.__ModuleLoader__.load({
           }
           return h('div', { key, className: 'gwb-merge-region' }, rows)
         }
-        const oursStart = cursor + 1
-        const afterOurs = oursStart + segment.ours.length
-        const baseStart = afterOurs + 1
-        const theirsStart = segment.base.length > 0 ? baseStart + segment.base.length + 1 : afterOurs + 1
         cursor += segment.raw.length
         const index = segment.index
         return h(
@@ -2025,18 +2451,35 @@ window.__ModuleLoader__.load({
             h('span', { className: 'gwb-merge-n' }, String(segment.index + 1)),
             h('span', { className: 'gwb-faint' }, `L${segment.line}`),
             h('span', { style: { flex: 1 } }),
+            // One action row per conflict. The column labels used to carry a
+            // second set, which read as two toolbars per block.
             readOnly
               ? null
-              : [
+              : h(
+                  'div',
+                  { className: 'gwb-merge-acts' },
+                  h('button', { key: 'ours', className: 'gwb-link ours', disabled: busy, onClick: () => void decide(segment.index, 'ours') }, tt('merge.takeOurs')),
+                  h('button', { key: 'theirs', className: 'gwb-link theirs', disabled: busy, onClick: () => void decide(segment.index, 'theirs') }, tt('merge.takeTheirs')),
+                  h('button', { key: 'both', className: 'gwb-link', disabled: busy, onClick: () => void decide(segment.index, 'both') }, tt('merge.takeBoth')),
                   h(
                     'button',
                     { key: 'edit', className: 'gwb-link', disabled: busy, onClick: () => (editing?.index === index ? setEditing(null) : startEdit(segment)) },
                     tt(editing?.index === index ? 'merge.closeEdit' : 'merge.edit'),
                   ),
-                  h('button', { key: 'both', className: 'gwb-link', disabled: busy, onClick: () => void decide(segment.index, 'both') }, tt('merge.takeBoth')),
-                ],
+                ),
           ),
-          h('div', { className: 'gwb-merge-cols' }, sideColumn(segment, 'ours', oursStart), sideColumn(segment, 'theirs', theirsStart)),
+          h(
+            'div',
+            {
+              className: 'gwb-merge-cols',
+              // The ancestor is only a column when it exists; an add/add
+              // conflict has no common block to compare against.
+              'data-cols': showBase && segment.base.length > 0 ? '3' : '2',
+            },
+            showBase && segment.base.length > 0 ? baseColumn(segment) : null,
+            sideColumn(segment, 'ours'),
+            sideColumn(segment, 'theirs'),
+          ),
           editing?.index === index
             ? h(
                 'div',
@@ -2069,16 +2512,24 @@ window.__ModuleLoader__.load({
                 ),
               )
             : null,
-          segment.base.length > 0
-            ? h(
-                'div',
-                { className: 'gwb-merge-base' },
-                h('div', { className: 'gwb-merge-label' }, h('span', null, tt('merge.base'))),
-                segment.base.map((text, i) => mergeRow(text, '', null, `b${segment.index}-${i}`, baseStart + i)),
-              )
-            : null,
         )
       })
+
+      // One set of column labels for the whole file: repeating them under every
+      // conflict read as three toolbars per block. Narrow panes hide this head
+      // and fall back to the per-column labels, which stay next to the stacked
+      // columns there.
+      const hasBase = (view?.segments ?? []).some((segment) => segment.kind !== 'plain' && segment.base.length > 0)
+      const colsHead =
+        view && regions.length > 0
+          ? h(
+              'div',
+              { className: 'gwb-merge-cols gwb-merge-colshead', 'data-cols': showBase && hasBase ? '3' : '2' },
+              showBase && hasBase ? h('div', { className: 'gwb-merge-label base' }, h('span', null, tt('merge.base'))) : null,
+              h('div', { className: 'gwb-merge-label ours' }, h('span', null, tt('merge.ours'))),
+              h('div', { className: 'gwb-merge-label theirs' }, h('span', null, tt('merge.theirs'))),
+            )
+          : null
 
       return h(
         'div',
@@ -2106,30 +2557,43 @@ window.__ModuleLoader__.load({
               ]
             : null,
           h('span', { style: { flex: 1 } }),
-          view && view.base !== null
-            ? h('button', { className: `gwb-btn sm ctl${showBase ? ' on' : ''}`, onClick: () => setShowBase((value) => !value) }, showBase ? tt('merge.hideBase') : tt('merge.showBase'))
+          // The remaining count stays visible while the blocks settle; the
+          // toast that follows a decision scrolls away, a count does not.
+          view && regions.length > 0
+            ? h('span', { key: 'left', className: 'gwb-chip-meta', title: tt('merge.remainingHint') }, tt('merge.remaining', { count: regions.length }))
             : null,
+          view && view.base !== null
+            ? h(
+                'button',
+                { className: `gwb-btn sm ctl${showBase ? ' on' : ''}`, title: tt('merge.baseHint'), onClick: toggleMergeBase },
+                showBase ? tt('merge.hideBase') : tt('merge.showBase'),
+              )
+            : null,
+          // Three bulk buttons dominated the bar for an action that is rare
+          // and destructive: one menu keeps them, and the confirm, in reach.
           readOnly || !view || regions.length === 0
             ? null
             : h(
-                'div',
-                // One flex group: at sidebar width the bar wraps, and three
-                // loose buttons used to split across the two lines one by one.
-                { key: 'bulk', className: 'gwb-merge-bulk' },
-                h('button', { key: 'o', className: 'gwb-btn sm ctl', disabled: busy, onClick: () => void decideAll('ours') }, tt('merge.allOurs')),
-                h('button', { key: 't', className: 'gwb-btn sm ctl', disabled: busy, onClick: () => void decideAll('theirs') }, tt('merge.allTheirs')),
-                h('button', { key: 'b', className: 'gwb-btn sm ctl', disabled: busy, onClick: () => void decideAll('both') }, tt('merge.allBoth')),
+                Menu,
+                {
+                  key: 'bulk',
+                  align: 'down',
+                  width: 220,
+                  title: tt('merge.allHint'),
+                  button: h('button', { className: 'gwb-btn sm ctl', disabled: busy }, `${tt('merge.all')} ▾`),
+                },
+                h(MenuRow, { key: 'o', onClick: () => void decideAll('ours') }, h('span', { className: 'gwb-grow' }, tt('merge.allOurs'))),
+                h(MenuRow, { key: 't', onClick: () => void decideAll('theirs') }, h('span', { className: 'gwb-grow' }, tt('merge.allTheirs'))),
+                h(MenuRow, { key: 'b', onClick: () => void decideAll('both') }, h('span', { className: 'gwb-grow' }, tt('merge.allBoth'))),
               ),
         ),
-        showBase && view?.base
-          ? h('div', { className: 'gwb-merge-base' }, h('div', { className: 'gwb-merge-label' }, h('span', null, tt('merge.base'))), view.base.split('\n').map((text, i) => mergeRow(text, '', null, `base-${i}`, i + 1)))
-          : null,
         h(
           'div',
-          { className: `gwb-diffbody${config().diffWrap === false ? ' gwb-nowrap' : ''}` },
+          { className: 'gwb-diffbody' },
           error ? h('div', { className: 'gwb-error' }, localizeError(error)) : null,
           !view && !error ? h('div', { className: 'gwb-loading' }, tt('merge.loading')) : null,
           view && regions.length === 0 ? h('div', { className: 'gwb-empty' }, tt('merge.empty')) : null,
+          colsHead,
           view && regions.length > 0 ? body : null,
           view && view.complete === false ? h('div', { className: 'gwb-empty' }, tt('merge.broken')) : null,
         ),
@@ -2167,6 +2631,6 @@ window.__ModuleLoader__.load({
       const Body = target.mode === 'merge' ? MergeView : DiffView
       return h(Safe, null, h(Body, { target, sessionDir, canClose: true, onClose: closeDiffView }))
     }
-    return { diffStatsOf, highlightTokens, langOf, lineDiffSpans, wordDiffRanges, unifiedMarks, foldSegments, countChanges, unifiedRows, sideRows, hunkBlock, DiffView, MergeView, GitDiffViewBody }
+    return { diffStatsOf, highlightTokens, langOf, lineDiffSpans, wordDiffRanges, unifiedMarks, foldSegments, countChanges, unifiedRows, sideColumns, sideBlock, hunkBlock, DiffView, MergeView, GitDiffViewBody }
   },
 })

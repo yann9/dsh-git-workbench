@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- The log's filter menu now lists the values the repository actually has —
+  authors with their commit counts, tags, and date ranges from today to this
+  year — so a condition no longer starts with typing `author:` from memory.
+  Picked conditions sit beside typed ones as chips, and recent filter sets can
+  be applied again in one click.
+- The diff toolbar gained wrap, highlight (words / lines / off) and an explicit
+  split choice. Picking split is honoured even in a narrow panel, and turning
+  wrap off makes long lines scroll sideways instead of being clipped.
+- The merge view shows the common ancestor as a third column aligned with both
+  sides, and keeps the number of unresolved blocks in the toolbar while you
+  decide them.
+
 ### Changed
 
 - Pull, push, fetch, merge and tag-push report what actually happened — the
@@ -21,6 +35,8 @@ All notable changes to this project are documented here. The format follows
   longer dies on "the upstream branch … does not match the name of your
   current branch": the push publishes it under its own name and points it at
   that remote branch.
+- The commit graph no longer leaves a duplicate lane running down the list when
+  a merged branch rejoins a lane another commit already owns.
 
 ## 0.1.8 — 2026-11-10
 

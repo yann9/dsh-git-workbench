@@ -93,7 +93,7 @@ dsh plugin --profile web remove @yann9/dsh-git-workbench
         confirmDirtySwitch: true       # 工作区有改动时，切分支先确认
 
         diffFullFile: true             # true = 整文件 + 折叠未变区；false = 只看改动前后 3 行
-        diffWrap: true                 # true = 长行软换行；false = 裁切
+        diffWrap: true                 # 统一视图 true = 长行软换行；false = 横向滚动（并排视图固定换行）
         diffFoldThreshold: 8           # 未变区超过多少行折叠（2–500）
         diffSideBySide: true           # 首次打开用并排还是统一视图
 
