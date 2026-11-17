@@ -1012,6 +1012,37 @@ test('side-by-side panes list only their own lines, one number each', async () =
   assert.match(right[1].props.className, /gwb-change/)
 })
 
+test('changed runs map between the panes like the reference scroll sync', async () => {
+  const { diff } = await loadClient()
+  // One edit: 40px on the left, 80px on the right; both documents end 260px later.
+  const runs = [{ a0: 100, a1: 140, b0: 100, b1: 180, changed: true }]
+  // chunk objects live in a vm realm, so normalise before a strict compare
+  const at = (y, from) => JSON.parse(JSON.stringify(diff.bandAt(runs, 400, 440, y, from)))
+
+  // unchanged text above maps one to one
+  assert.deepEqual(at(50, 'left'), { a0: 0, a1: 100, b0: 0, b1: 100, changed: false })
+  assert.equal(diff.transferY(at(50, 'left'), 50, 'left'), 50)
+
+  // inside a change the other side follows line by line…
+  assert.equal(diff.transferY(at(120, 'left'), 120, 'left'), 120)
+  // …and waits at the end of its shorter part once it runs out
+  assert.equal(diff.transferY(at(150, 'right'), 150, 'right'), 140)
+
+  // past the change both stretches are unchanged: 260px on either side
+  assert.deepEqual(at(200, 'right'), { a0: 140, a1: 400, b0: 180, b1: 440, changed: false })
+  assert.equal(diff.transferY(at(200, 'right'), 200, 'right'), 160)
+
+  // a change at the end of both panes falls back to the last band; the
+  // caller clamps the result against the pane's scroll range
+  assert.equal(diff.transferY(at(399, 'left'), 399, 'left'), 439)
+  assert.equal(diff.transferY(at(500, 'left'), 500, 'left'), 540)
+
+  // an empty side becomes a 2px sliver; the arrow centres on the first line
+  assert.equal(diff.bandPath(30, 10, 10, 20, 40), 'M0 9C9 9 21 20 30 20L30 40C21 40 9 11 0 11Z')
+  assert.equal(diff.arrowTop(100, 101), 92)
+  assert.equal(diff.arrowTop(100, 160), 102)
+})
+
 test('a one-sided change leaves the other pane a gap rule, not blank rows', async () => {
   const { diff } = await loadClient()
   const options = { side: 'unstaged', selection: new Set(), readOnly: true, lang: 'clike', fileIndex: 0, highlight: 'line' }

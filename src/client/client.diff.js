@@ -265,7 +265,7 @@ window.__ModuleLoader__.load({
     }
 
     /** A cell state as a class: the change type tints the line number and gutter. */
-    const stateClass = (state) => (state === 'add' || state === 'del' ? ` ${state}` : '')
+    const stateClass = (state) => (state === 'add' || state === 'del' || state === 'mod' ? ` ${state}` : '')
 
     function cellNumber(value, state) {
       return h('div', { className: `gwb-dc ln${stateClass(state)}` }, value ?? '')
@@ -277,7 +277,7 @@ window.__ModuleLoader__.load({
      */
     function cellBar({ type, cellKey, selectable, onToggle, hint }) {
       return h('div', {
-        className: `gwb-dc bar${type === 'add' ? ' add' : type === 'del' ? ' del' : ''}${selectable ? '' : ' inert'}`,
+        className: `gwb-dc bar${stateClass(type)}${selectable ? '' : ' inert'}`,
         'data-key': cellKey,
         title: selectable ? hint : undefined,
         onClick: selectable ? () => onToggle(cellKey) : undefined,
@@ -285,14 +285,13 @@ window.__ModuleLoader__.load({
     }
 
     /** One code cell: syntax-coloured, optionally word-marked. */
-    function cellCode(line, { type, mark, lang, cellKey, side, lineIndex, fileIndex }) {
+    function cellCode(line, { type, word, mark, lang, cellKey, side, lineIndex, fileIndex }) {
       const tokens = highlightTokens(line.text, lang)
-      const children = tokenSpans(tokens, mark, type === 'add' ? 'add' : 'del')
-      const cls = type === 'add' ? ' add' : type === 'del' ? ' del' : ''
+      const children = tokenSpans(tokens, mark, (word ?? type) === 'add' ? 'add' : 'del')
       return h(
         'div',
         {
-          className: `gwb-dc code${cls}`,
+          className: `gwb-dc code${stateClass(type)}`,
           'data-key': cellKey ?? undefined,
           'data-side': side ?? undefined,
           'data-line': lineIndex ?? undefined,
@@ -370,103 +369,77 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // The divider's block action reads as ">>"/"<<" in the reference, not as a
+    // single disclosure chevron.
+    const BLOCK_ARROW_PATH = {
+      left: 'M7 2.5 3.5 6 7 9.5M10.5 2.5 7 6l3.5 3.5',
+      right: 'M1.5 2.5 5 6 1.5 9.5M5 2.5 8.5 6 5 9.5',
+    }
+
+    /* Side-by-side scrolling, copied from the reference's diffScroll.ts: each
+       pane scrolls on its own, and the pane being scrolled carries the other
+       one through the measured change runs. Unchanged stretches map
+       proportionally, a change maps line by line, and the other side waits at
+       the end of its shorter part — never pixel-locked. */
+
+    /** First index in [0, n) where `past` holds, given it holds for a suffix. */
+    function firstIndex(n, past) {
+      let lo = 0
+      let hi = n
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (past(mid)) hi = mid
+        else lo = mid + 1
+      }
+      return lo
+    }
+
     /**
-     * Paint the divider bands: one quadrilateral per change run, joining the
-     * run's rows in the left pane to its rows in the right. The panes are
-     * independent (each lists only its own lines), so the two sides of a run
-     * almost never share a y range — the curve carries the difference, the way
-     * IDEA's DiffDrawUtil.makeCurve does. A side missing from the run has no
-     * rows at all; its boundary is the gap rule, widened to a 2px sliver.
+     * The stretch of both panes around `y` of pane `from` ("left" or
+     * "right"): unchanged text between two runs, or a change. Runs are
+     * measured in each pane's own content pixels (a = left, b = right).
      */
-    function drawDiffBands(layer, body) {
-      if (!layer || !body) return
-      layer.textContent = ''
-      const blocks = body.querySelectorAll('.gwb-split')
-      if (blocks.length === 0) return
-      const origin = body.getBoundingClientRect()
-      const offsetX = origin.left - body.scrollLeft
-      const offsetY = origin.top - body.scrollTop
-      const ns = 'http://www.w3.org/2000/svg'
-      const contentW = Math.max(1, Math.ceil(body.scrollWidth))
-      const svg = document.createElementNS(ns, 'svg')
-      svg.setAttribute('class', 'gwb-diffbands')
-      svg.setAttribute('width', String(contentW))
-      svg.setAttribute('height', String(Math.max(1, Math.ceil(body.scrollHeight))))
-      svg.setAttribute('aria-hidden', 'true')
-      const defs = document.createElementNS(ns, 'defs')
-      const gradient = document.createElementNS(ns, 'linearGradient')
-      gradient.setAttribute('id', 'gwb-band-mod')
-      gradient.setAttribute('x1', '0')
-      gradient.setAttribute('x2', '1')
-      for (const [offset, cls] of [
-        ['0', 'del'],
-        ['1', 'add'],
-      ]) {
-        const stop = document.createElementNS(ns, 'stop')
-        stop.setAttribute('offset', offset)
-        stop.setAttribute('class', cls)
-        gradient.appendChild(stop)
+    function bandAt(runs, endA, endB, y, from) {
+      const start = (run) => (from === 'left' ? run.a0 : run.b0)
+      const end = (run) => (from === 'left' ? run.a1 : run.b1)
+      const next = firstIndex(runs.length, (i) => start(runs[i]) > y)
+      let a = 0
+      let b = 0
+      const prev = runs[next - 1]
+      if (prev) {
+        if (y < end(prev)) return { a0: prev.a0, a1: prev.a1, b0: prev.b0, b1: prev.b1, changed: true }
+        a = prev.a1
+        b = prev.b1
       }
-      defs.appendChild(gradient)
-      svg.appendChild(defs)
-      const paint = (d, cls) => {
-        const path = document.createElementNS(ns, 'path')
-        path.setAttribute('class', cls)
-        path.setAttribute('d', d)
-        svg.appendChild(path)
-      }
-      for (const block of blocks) {
-        const divider = block.querySelector('.gwb-splitdivider')
-        if (!divider) continue
-        const rect = divider.getBoundingClientRect()
-        // Both edges sit inside the divider's own hairline borders.
-        const bx0 = rect.left - offsetX + 1
-        const bx1 = rect.right - offsetX - 1
-        const w = bx1 - bx0
-        const runs = new Map()
-        for (const row of block.querySelectorAll('.gwb-drow[data-run]')) {
-          const key = row.dataset.run
-          let run = runs.get(key)
-          if (!run) {
-            run = { left: [], right: [] }
-            runs.set(key, run)
-          }
-          const box = row.getBoundingClientRect()
-          run[row.dataset.col === 'left' ? 'left' : 'right'].push({ y0: box.top - offsetY, y1: box.bottom - offsetY })
-        }
-        // The missing side's boundary: its gap rule marks where its lines would sit.
-        for (const marker of block.querySelectorAll('.gwb-gapmark[data-run]')) {
-          const run = runs.get(marker.dataset.run)
-          if (!run) continue
-          const y = marker.getBoundingClientRect().top - offsetY
-          if (marker.closest('.gwb-splitcol')?.dataset.col === 'left') run.gapLeft = y
-          else run.gapRight = y
-        }
-        for (const run of runs.values()) {
-          const { left, right } = run
-          const kind = left.length === 0 ? 'add' : right.length === 0 ? 'del' : 'mod'
-          const extentOf = (boxes, gap) =>
-            boxes.length === 0
-              ? [gap ?? 0, gap ?? 0]
-              : [Math.min(...boxes.map((box) => box.y0)), Math.max(...boxes.map((box) => box.y1))]
-          let [a0, a1] = extentOf(left, run.gapLeft)
-          let [b0, b1] = extentOf(right, run.gapRight)
-          // An empty side is a 2px sliver on its boundary, not a zero-height shape.
-          if (a1 - a0 < 2) [a0, a1] = [a0 - 1, a0 + 1]
-          if (b1 - b0 < 2) [b0, b1] = [b0 - 1, b0 + 1]
-          const c1 = bx0 + w * 0.3
-          const c2 = bx0 + w * 0.7
-          paint(
-            `M${bx0} ${a0}C${c1} ${a0} ${c2} ${b0} ${bx1} ${b0}L${bx1} ${b1}C${c2} ${b1} ${c1} ${a1} ${bx0} ${a1}Z`,
-            `gwb-diffband ${kind}`,
-          )
-          // The same-coloured midline keeps the band and its outline one shape.
-          const mid = (a0 + a1) / 2
-          const midB = (b0 + b1) / 2
-          paint(`M${bx0} ${mid}C${c1} ${mid} ${c2} ${midB} ${bx1} ${midB}`, `gwb-diffbandline ${kind}`)
-        }
-      }
-      layer.appendChild(svg)
+      const after = runs[next]
+      return after
+        ? { a0: a, a1: after.a0, b0: b, b1: after.b0, changed: false }
+        : { a0: a, a1: endA, b0: b, b1: endB, changed: false }
+    }
+
+    /** Where `y` of pane `from` sits in the other pane (base sync scroll). */
+    function transferY(band, y, from) {
+      const fromA = from === 'left'
+      const [m0, m1, s0, s1] = fromA
+        ? [band.a0, band.a1, band.b0, band.b1]
+        : [band.b0, band.b1, band.a0, band.a1]
+      if (band.changed) return Math.min(s0 + (y - m0), s1)
+      return m1 > m0 ? s0 + ((y - m0) * (s1 - s0)) / (m1 - m0) : s0
+    }
+
+    /** The divider band joining [a0,a1] left to [b0,b1] right (DiffDrawUtil.makeCurve). */
+    function bandPath(w, a0, a1, b0, b1) {
+      // An empty side is a 2px sliver on its boundary.
+      if (a1 - a0 < 2) [a0, a1] = [a0 - 1, a0 + 1]
+      if (b1 - b0 < 2) [b0, b1] = [b0 - 1, b0 + 1]
+      const c1 = w * 0.3
+      const c2 = w * 0.7
+      return `M0 ${a0}C${c1} ${a0} ${c2} ${b0} ${w} ${b0}L${w} ${b1}C${c2} ${b1} ${c1} ${a1} 0 ${a1}Z`
+    }
+
+    /** First-line anchor of the divider arrow: centred in the run's first line. */
+    function arrowTop(y0, y1, lineHeight = 20) {
+      return y1 - y0 < 2 ? y0 - 8 : y0 + (Math.min(lineHeight, y1 - y0) - 16) / 2
     }
 
     /**
@@ -597,11 +570,17 @@ window.__ModuleLoader__.load({
       const number =
         type === 'del' ? line.oldLine : type === 'add' ? line.newLine : col === 'left' ? line.oldLine : (line.newLine ?? line.oldLine)
       const rowCls = `gwb-drow${selected ? ' selected' : ''}${type === 'add' ? ' add-row' : type === 'del' ? ' del-row' : ''}${extra?.change ? ' gwb-change' : ''}`
+      // A replacement is one kind on both panes (blue lines, as in the
+      // reference); an insertion or deletion is its own kind on the side that
+      // has the lines. Only the word marks stay per side.
+      const kind = extra?.kind ?? type
+      const gutter = kind === 'mod' && col === 'right' ? 'mod' : type
       const cells = [
-        cellNumber(number, type),
-        cellBar({ type, cellKey, selectable, onToggle: options.onToggle, hint: options.stageHint }),
+        cellNumber(number, gutter),
+        cellBar({ type: gutter, cellKey, selectable, onToggle: options.onToggle, hint: options.stageHint }),
         cellCode(line, {
-          type,
+          type: kind,
+          word: type,
           mark: extra?.mark ?? null,
           lang: options.lang,
           cellKey,
@@ -610,27 +589,6 @@ window.__ModuleLoader__.load({
           fileIndex: options.fileIndex,
         }),
       ]
-      // One arrow per change run, on the pane that owns the run's lines and
-      // overhanging into the divider: the whole block moves to the other side.
-      if (extra?.arrow) {
-        cells.push(
-          h(
-            'button',
-            {
-              key: 'arrow',
-              className: 'gwb-diffarrow',
-              type: 'button',
-              title: extra.blockTitle,
-              'aria-label': extra.blockTitle,
-              onClick: (event) => {
-                event.stopPropagation()
-                extra.blockAction({ hunk: hunkIndex, lines: extra.runLines })
-              },
-            },
-            chevronIcon(options.blockArrow),
-          ),
-        )
-      }
       return h(
         'div',
         {
@@ -663,7 +621,7 @@ window.__ModuleLoader__.load({
      * unpadded panes). A chunk that exists on only one side leaves no blank
      * rows on the other: the missing pane keeps its own lines and gets a single
      * gap rule where the counterpart's lines would sit, so line numbers stay
-     * true to each file. drawDiffBands() bridges the two columns per run.
+     * true to each file. The divider bands bridge the two columns per run.
      */
     function sideColumns(items, hunkIndex, options, runPrefix = String(hunkIndex)) {
       const slots = []
@@ -698,7 +656,7 @@ window.__ModuleLoader__.load({
         }
         const { dels, adds } = slot
         // Run keys must be unique per hunk: a hunk is rendered as several
-        // segments (fold bands split it), and drawDiffBands groups by this key.
+        // segments (fold bands split it), and the divider groups bands by this key.
         const runKey = `${runPrefix}-${runIndex}`
         runIndex += 1
         // Word-level diff for a replacement run (JetBrains' intra-line
@@ -713,12 +671,11 @@ window.__ModuleLoader__.load({
             if (ranges.right.length > 0) rightMark.set(adds[i].index, ranges.right)
           }
         }
-        // The arrow sits on the pane that owns the run's lines, centred in it.
+        // The arrow sits on the divider, not on a row (SplitView places it);
+        // the change head marks the pane that owns the run's first line.
         const host = adds.length > 0 ? 'right' : 'left'
-        const hostCount = adds.length > 0 ? adds.length : dels.length
-        const arrowAt = Math.floor((hostCount - 1) / 2)
-        const runLines = [...dels, ...adds].map((entry) => entry.index)
-        const fields = { runKey, runLines, blockAction: options.blockAction, blockTitle: options.blockTitle }
+        const kind = dels.length === 0 ? 'add' : adds.length === 0 ? 'del' : 'mod'
+        const fields = { runKey, kind }
         if (dels.length === 0) left.push(gapMark(runKey, 'add'))
         if (adds.length === 0) right.push(gapMark(runKey, 'del'))
         dels.forEach((entry, i) =>
@@ -727,7 +684,6 @@ window.__ModuleLoader__.load({
               ...fields,
               mark: leftMark.get(entry.index) ?? null,
               change: host === 'left' && i === 0,
-              arrow: host === 'left' && i === arrowAt,
             }),
           ),
         )
@@ -737,7 +693,6 @@ window.__ModuleLoader__.load({
               ...fields,
               mark: rightMark.get(entry.index) ?? null,
               change: host === 'right' && i === 0,
-              arrow: host === 'right' && i === arrowAt,
             }),
           ),
         )
@@ -745,29 +700,51 @@ window.__ModuleLoader__.load({
       return { left, right }
     }
 
-    /** One hunk as two pane columns joined by the divider track. */
-    function sideBlock(hunk, hunkIndex, options) {
+    /** The thin per-hunk rule: skipped lines, section and (right pane only) action. */
+    function hunkHead(hunk, hunkIndex, options, hidden, withAction) {
+      const range = hunk.header.replace(/^@@\s*/, '').replace(/\s*@@.*$/, '')
+      return h('div', { key: `h${hunkIndex}`, className: 'gwb-hunkhead', 'data-hunk': hunkIndex, title: range }, [
+        h('span', { key: 'm', className: 'gwb-hunkmark' }, '⋮'),
+        hidden > 0 ? h('span', { key: 'g', className: 'gwb-hunkgapcount' }, tt('diff.unchanged', { count: hidden })) : null,
+        hunk.section ? h('span', { key: 's', className: 'gwb-hunksection' }, hunk.section) : null,
+        withAction && options.hunkAction && !options.readOnly
+          ? h('button', { key: 'a', className: 'gwb-btn sm ctl gwb-hunkbtn', onClick: () => options.hunkAction(hunkIndex) }, options.hunkLabel)
+          : null,
+      ])
+    }
+
+    /**
+     * One split section's hunks laid out per pane: each pane gets its own
+     * copy of the hunk rules and folded runs, and only its own lines. The
+     * hunk action belongs to the editable (right) side, once per hunk.
+     */
+    function paneRows(hunks, options) {
       const left = []
       const right = []
-      let segmentIndex = 0
-      for (const segment of foldSegments(hunk.lines, hunkIndex, options)) {
-        if (segment.type === 'fold') {
-          left.push(columnFold(segment, options, 'left'))
-          right.push(columnFold(segment, options, 'right'))
-          continue
+      hunks.forEach((hunk, hunkIndex) => {
+        const previous = hunks[hunkIndex - 1]
+        const hidden = previous ? hunk.oldStart - (previous.oldStart + previous.oldLines) : 0
+        // A lone hunk that starts at the top of the file has nothing to
+        // annotate: its one-line band was a stray rule above line 1.
+        const solo = hunks.length === 1 && hidden === 0 && !hunk.section
+        if (!solo) {
+          left.push(hunkHead(hunk, hunkIndex, options, hidden, false))
+          right.push(hunkHead(hunk, hunkIndex, options, hidden, true))
         }
-        const columns = sideColumns(segment.items, hunkIndex, options, `${hunkIndex}.${segmentIndex}`)
-        segmentIndex += 1
-        left.push(...columns.left)
-        right.push(...columns.right)
-      }
-      return h(
-        'div',
-        { key: `side${hunkIndex}`, className: 'gwb-split', 'data-hunk': hunkIndex },
-        h('div', { key: 'l', className: 'gwb-splitcol left', 'data-col': 'left' }, left),
-        h('div', { key: 'd', className: 'gwb-splitdivider', 'aria-hidden': 'true' }),
-        h('div', { key: 'r', className: 'gwb-splitcol right', 'data-col': 'right' }, right),
-      )
+        let segmentIndex = 0
+        for (const segment of foldSegments(hunk.lines, hunkIndex, options)) {
+          if (segment.type === 'fold') {
+            left.push(columnFold(segment, options, 'left'))
+            right.push(columnFold(segment, options, 'right'))
+            continue
+          }
+          const columns = sideColumns(segment.items, hunkIndex, options, `${hunkIndex}.${segmentIndex}`)
+          segmentIndex += 1
+          left.push(...columns.left)
+          right.push(...columns.right)
+        }
+      })
+      return { left, right }
     }
 
     /** Number of change blocks (not hunks) — the IDE's "N changes" counter. */
@@ -785,27 +762,7 @@ window.__ModuleLoader__.load({
 
     /** @returns {import('./types').Element[]} one hunk: header + rows */
     function hunkBlock(hunk, hunkIndex, options, hidden = 0, solo = false) {
-      const range = hunk.header.replace(/^@@\s*/, '').replace(/\s*@@.*$/, '')
-      // One thin band per hunk: the skipped-line count, the section and the
-      // hunk action share it, so a hunk boundary is not two rules in a row.
-      const header = h(
-        'div',
-        { key: `h${hunkIndex}`, className: 'gwb-hunkhead', 'data-hunk': hunkIndex, title: range },
-        h('span', { className: 'gwb-hunkmark' }, '⋮'),
-        hidden > 0 ? h('span', { className: 'gwb-hunkgapcount' }, tt('diff.unchanged', { count: hidden })) : null,
-        hunk.section ? h('span', { className: 'gwb-hunksection' }, hunk.section) : null,
-        options.hunkAction && !options.readOnly
-          ? h('button', { className: 'gwb-btn sm ctl gwb-hunkbtn', onClick: () => options.hunkAction(hunkIndex) }, options.hunkLabel)
-          : null,
-      )
-      // A lone hunk that starts at the top of the file has nothing to annotate:
-      // its one-line band was a stray rule above line 1. Its action is the
-      // section's action anyway, so the band goes.
-      const rows = solo && hidden === 0 && !hunk.section ? [] : [header]
-      if (options.sideBySide) {
-        rows.push(sideBlock(hunk, hunkIndex, options))
-        return rows
-      }
+      const rows = solo && hidden === 0 && !hunk.section ? [] : [hunkHead(hunk, hunkIndex, options, hidden, true)]
       for (const segment of foldSegments(hunk.lines, hunkIndex, options)) {
         if (segment.type === 'fold') {
           rows.push(foldBand(segment, options))
@@ -832,6 +789,301 @@ window.__ModuleLoader__.load({
         h('span', { className: 'gwb-diffside-left' }, labels.left),
         h('span', { className: 'gwb-diffside-con' }),
         h('span', { className: 'gwb-diffside-right' }, labels.right),
+      )
+    }
+
+    /**
+     * One split section: two independent scroll containers around the 30px
+     * divider, with the reference's band-mapped scroll sync. Bands and the
+     * block arrow are painted into the divider in viewport coordinates, so a
+     * change connects where it actually sits in each pane. An `unbounded`
+     * view (a card inside a scrolling page) cannot own the scroll: its panes
+     * grow to their content and the page keeps scrolling.
+     */
+    function SplitView({ hunks, options, unbounded = false }) {
+      const leftRef = useRef(null)
+      const rightRef = useRef(null)
+      const dividerRef = useRef(null)
+      const svgRef = useRef(null)
+      const hintRef = useRef(null)
+      const optionsRef = useRef(options)
+      optionsRef.current = options
+      // Change runs measured in each pane's content pixels; the ends are the
+      // two panes' full content heights (the reference's document bottoms).
+      const stateRef = useRef({ runs: [], endA: 0, endB: 0 })
+      const arrowsRef = useRef(new Map())
+      const picksRef = useRef(new Map())
+      // The scroll position each pane was last moved to by the other one, to
+      // tell its echo from the user.
+      const movedRef = useRef({ left: null, right: null })
+      const prevHunksRef = useRef(hunks)
+      const frameRef = useRef(0)
+      const drawRef = useRef(() => {})
+      const followRef = useRef(() => {})
+      const { left: leftRows, right: rightRows } = paneRows(hunks, options)
+
+      const measure = () => {
+        const left = leftRef.current
+        const right = rightRef.current
+        if (!left || !right) return null
+        const collect = (pane) => {
+          const origin = pane.getBoundingClientRect().top - pane.scrollTop
+          const extents = new Map()
+          const meta = new Map()
+          for (const el of pane.querySelectorAll('[data-run]')) {
+            const key = el.dataset.run
+            const box = el.getBoundingClientRect()
+            const y0 = box.top - origin
+            const y1 = box.bottom - origin
+            const previous = extents.get(key)
+            if (previous) {
+              previous[0] = Math.min(previous[0], y0)
+              previous[1] = Math.max(previous[1], y1)
+            } else extents.set(key, [y0, y1])
+            const entry = meta.get(key) ?? { hunk: Number(el.dataset.hunk ?? 0), lines: [] }
+            const line = Number(el.dataset.line)
+            if (Number.isSafeInteger(line)) entry.lines.push(line)
+            meta.set(key, entry)
+          }
+          return { extents, meta }
+        }
+        const a = collect(left)
+        const b = collect(right)
+        const runs = []
+        // Both panes list runs in the same sequence (same slots per hunk), so
+        // the left pane's DOM order is the band order.
+        for (const [key, [a0, a1]] of a.extents) {
+          const range = b.extents.get(key) ?? [a0, a0]
+          const hunk = a.meta.get(key)?.hunk ?? b.meta.get(key)?.hunk ?? 0
+          // A replacement moves both sides' lines: the block action takes the
+          // same run the rows carry (deletions first, then additions).
+          const lines = [...(a.meta.get(key)?.lines ?? []), ...(b.meta.get(key)?.lines ?? [])]
+          runs.push({ key, a0, a1, b0: range[0], b1: range[1], changed: true, hunk, lines })
+        }
+        return { runs, endA: left.scrollHeight, endB: right.scrollHeight }
+      }
+
+      const draw = () => {
+        frameRef.current = 0
+        const divider = dividerRef.current
+        const svg = svgRef.current
+        const left = leftRef.current
+        const right = rightRef.current
+        if (!divider || !svg || !left || !right) return
+        const state = measure()
+        if (!state) return
+        stateRef.current = state
+        // Both edges sit inside the divider's own hairline borders.
+        const w = divider.clientWidth - 2
+        const h = divider.clientHeight
+        if (w <= 0 || h <= 0) return
+        svg.setAttribute('width', String(w))
+        svg.setAttribute('height', String(h))
+        svg.setAttribute('viewBox', `0 0 ${w} ${h}`)
+        const box = divider.getBoundingClientRect()
+        const offA = left.getBoundingClientRect().top - box.top - left.scrollTop
+        const offB = right.getBoundingClientRect().top - box.top - right.scrollTop
+        const opts = optionsRef.current
+        const withArrows = Boolean(opts.blockAction && !opts.readOnly)
+        const shown = new Set()
+        let paths = ''
+        for (let index = 0; index < state.runs.length; index += 1) {
+          const run = state.runs[index]
+          const a0 = run.a0 + offA
+          const a1 = run.a1 + offA
+          const b0 = run.b0 + offB
+          const b1 = run.b1 + offB
+          if (a1 < -24 && b1 < -24) continue
+          if (a0 > h + 1 && b0 > h + 1) break
+          const kind = run.a1 - run.a0 < 2 ? 'add' : run.b1 - run.b0 < 2 ? 'del' : 'mod'
+          paths += `<path class="gwb-diffband ${kind}" d="${bandPath(w, a0, a1, b0, b1)}"/>`
+          // The same-coloured midline keeps the band and its outline one shape.
+          const mid = (a0 + a1) / 2
+          const midB = (b0 + b1) / 2
+          paths += `<path class="gwb-diffbandline ${kind}" d="M0 ${mid}C${w * 0.3} ${mid} ${w * 0.7} ${midB} ${w} ${midB}"/>`
+          if (!withArrows) continue
+          // Like the reference: the arrow sits on the side the action copies
+          // from (staged keeps HEAD on the left, unstaged keeps the worktree
+          // on the right) and points across the band at its target. A
+          // one-sided run has no source lines, so it stays on the filled side.
+          const sourceLeft = opts.blockArrow === 'right'
+          const leftFilled = run.a1 - run.a0 >= 2
+          const rightFilled = run.b1 - run.b0 >= 2
+          const onLeft = sourceLeft ? leftFilled || !rightFilled : !rightFilled
+          const top = onLeft ? arrowTop(a0, a1) : arrowTop(b0, b1)
+          if (top < -16 || top > h) continue
+          shown.add(placeArrow(index, top, run))
+        }
+        svg.innerHTML = paths
+        for (const [key, el] of arrowsRef.current) {
+          if (shown.has(el)) continue
+          el.remove()
+          arrowsRef.current.delete(key)
+          picksRef.current.delete(key)
+        }
+      }
+
+      const placeArrow = (index, top, run) => {
+        const key = String(index)
+        let el = arrowsRef.current.get(key)
+        if (!el) {
+          el = document.createElement('button')
+          el.type = 'button'
+          el.className = 'gwb-diffarrow'
+          const ns = 'http://www.w3.org/2000/svg'
+          const icon = document.createElementNS(ns, 'svg')
+          icon.setAttribute('viewBox', '0 0 12 12')
+          icon.setAttribute('width', '12')
+          icon.setAttribute('height', '12')
+          icon.setAttribute('fill', 'none')
+          icon.setAttribute('aria-hidden', 'true')
+          icon.setAttribute('focusable', 'false')
+          const path = document.createElementNS(ns, 'path')
+          path.setAttribute('d', BLOCK_ARROW_PATH[optionsRef.current.blockArrow] ?? BLOCK_ARROW_PATH.right)
+          path.setAttribute('stroke', 'currentColor')
+          path.setAttribute('stroke-width', '1.5')
+          path.setAttribute('stroke-linecap', 'round')
+          path.setAttribute('stroke-linejoin', 'round')
+          icon.appendChild(path)
+          el.appendChild(icon)
+          el.addEventListener('click', (event) => {
+            event.stopPropagation()
+            const pick = picksRef.current.get(key)
+            const action = optionsRef.current.blockAction
+            if (pick && action) action({ hunk: pick.hunk, lines: pick.lines })
+          })
+          el.addEventListener('mouseenter', () => showHint(el))
+          el.addEventListener('mouseleave', hideHint)
+          el.addEventListener('focus', () => showHint(el))
+          el.addEventListener('blur', hideHint)
+          dividerRef.current?.appendChild(el)
+          arrowsRef.current.set(key, el)
+        }
+        picksRef.current.set(key, { hunk: run.hunk, lines: run.lines })
+        // A 30px divider has room for the glyph only: the hint is the bubble
+        // below, so the icon does not have to be guessed.
+        const title = optionsRef.current.blockTitle ?? ''
+        el.dataset.hint = title
+        el.setAttribute('aria-label', title)
+        el.style.top = `${Math.round(top)}px`
+        return el
+      }
+
+      /** The arrow's own hint bubble, anchored to the divider at its top. */
+      const showHint = (el) => {
+        const hint = hintRef.current
+        const divider = dividerRef.current
+        if (!hint || !divider || !el.dataset.hint) return
+        hint.textContent = el.dataset.hint
+        hint.style.left = `${divider.offsetLeft + divider.offsetWidth / 2}px`
+        const below = el.offsetTop < 30
+        hint.classList.toggle('below', below)
+        hint.style.top = `${below ? el.offsetTop + 22 : el.offsetTop - 4}px`
+        hint.classList.add('show')
+      }
+
+      const hideHint = () => hintRef.current?.classList.remove('show')
+      drawRef.current = draw
+
+      const follow = (from) => {
+        const left = leftRef.current
+        const right = rightRef.current
+        if (!left || !right) return
+        const master = from === 'left' ? left : right
+        const slave = from === 'left' ? right : left
+        const anchor = master.clientHeight / 3
+        const at = master.scrollTop + anchor
+        const { runs, endA, endB } = stateRef.current
+        const band = runs.length > 0 ? bandAt(runs, endA, endB, at, from) : null
+        const y = band ? transferY(band, at, from) : at
+        const top = Math.max(0, Math.min(y - anchor, slave.scrollHeight - slave.clientHeight))
+        if (Math.abs(slave.scrollTop - top) < 1) return
+        const before = slave.scrollTop
+        slave.scrollTop = top
+        if (slave.scrollTop !== before) movedRef.current[from === 'left' ? 'right' : 'left'] = slave.scrollTop
+      }
+      followRef.current = follow
+
+      const schedule = () => {
+        if (frameRef.current) return
+        frameRef.current = requestAnimationFrame(() => drawRef.current())
+      }
+
+      // A new payload resets both panes; the pane scrollTop would otherwise
+      // carry over from the previous file.
+      useLayoutEffect(() => {
+        if (prevHunksRef.current === hunks) return
+        prevHunksRef.current = hunks
+        if (leftRef.current) leftRef.current.scrollTop = 0
+        if (rightRef.current) rightRef.current.scrollTop = 0
+        movedRef.current = { left: null, right: null }
+      })
+      // Folds, wrapping and width changes are geometry: redraw after each render.
+      useLayoutEffect(() => {
+        schedule()
+      })
+      useEffect(() => {
+        const left = leftRef.current
+        const right = rightRef.current
+        if (!left || !right) return undefined
+        const panes = [['left', left], ['right', right]]
+        const handlers = panes.map(([side, pane]) => {
+          const onScroll = () => {
+            const expected = movedRef.current[side]
+            if (expected !== null) {
+              movedRef.current[side] = null
+              // The echo of our own move: the other pane already follows.
+              if (Math.abs(pane.scrollTop - expected) <= 1) {
+                schedule()
+                return
+              }
+            }
+            followRef.current(side)
+            schedule()
+          }
+          pane.addEventListener('scroll', onScroll, { passive: true })
+          return () => pane.removeEventListener('scroll', onScroll)
+        })
+        // The divider scrolls the right pane; synced scrolling carries the left.
+        const onWheel = (event) => {
+          if (!rightRef.current) return
+          event.preventDefault()
+          rightRef.current.scrollTop += event.deltaY
+        }
+        const divider = dividerRef.current
+        divider?.addEventListener('wheel', onWheel, { passive: false })
+        let observer = null
+        if (typeof ResizeObserver === 'function') {
+          observer = new ResizeObserver(schedule)
+          observer.observe(left)
+          observer.observe(right)
+          if (divider) observer.observe(divider)
+        }
+        window.addEventListener('resize', schedule)
+        return () => {
+          if (frameRef.current) cancelAnimationFrame(frameRef.current)
+          frameRef.current = 0
+          for (const off of handlers) off()
+          divider?.removeEventListener('wheel', onWheel)
+          observer?.disconnect()
+          window.removeEventListener('resize', schedule)
+          for (const el of arrowsRef.current.values()) el.remove()
+          arrowsRef.current.clear()
+          picksRef.current.clear()
+        }
+      }, [])
+
+      return h(
+        'div',
+        { className: `gwb-splitview${unbounded ? ' gwb-unbounded' : ''}` },
+        h('div', { key: 'l', className: 'gwb-splitpane', 'data-col': 'left', ref: leftRef }, leftRows),
+        h(
+          'div',
+          { key: 'd', className: 'gwb-splitdivider', ref: dividerRef, role: 'separator', 'aria-orientation': 'vertical' },
+          h('svg', { key: 'svg', className: 'gwb-diffbands', ref: svgRef, 'aria-hidden': 'true', focusable: 'false' }),
+        ),
+        h('div', { key: 'r', className: 'gwb-splitpane', 'data-col': 'right', ref: rightRef }, rightRows),
+        h('div', { key: 'hint', className: 'gwb-diffhint', ref: hintRef }),
       )
     }
 
@@ -930,7 +1182,6 @@ window.__ModuleLoader__.load({
         void reloadWorking()
       })
       const bodyRef = useRef(null)
-      const bandLayerRef = useRef(null)
       // Remeasured when the pane appears: a hidden pane reports zero widths,
       // and the columns must not be frozen at the fallback size.
       const [bodyWidth, setBodyWidth] = useState(0)
@@ -944,37 +1195,6 @@ window.__ModuleLoader__.load({
         observer.observe(body)
         return () => observer.disconnect()
       }, [])
-      // The divider bands are geometry: redraw them after every render (folds,
-      // modes, wrapping) and whenever the pane itself is resized.
-      const drawBands = useRef(() => {})
-      drawBands.current = () => drawDiffBands(bandLayerRef.current, bodyRef.current)
-      useLayoutEffect(() => {
-        const frame = requestAnimationFrame(() => drawBands.current())
-        return () => cancelAnimationFrame(frame)
-      })
-      useEffect(() => {
-        const body = bodyRef.current
-        if (!body) return undefined
-        let frame = 0
-        const flush = () => {
-          frame = 0
-          drawBands.current()
-        }
-        const schedule = () => {
-          if (!frame) frame = requestAnimationFrame(flush)
-        }
-        let observer = null
-        if (typeof ResizeObserver === 'function') {
-          observer = new ResizeObserver(schedule)
-          observer.observe(body)
-        }
-        window.addEventListener('resize', schedule)
-        return () => {
-          if (frame) cancelAnimationFrame(frame)
-          observer?.disconnect()
-          window.removeEventListener('resize', schedule)
-        }
-      }, [])
       // Direction to land on after a change-navigation file switch: the next
       // file's first change, or the previous file's last change.
       const pendingLand = useRef(null)
@@ -983,10 +1203,10 @@ window.__ModuleLoader__.load({
       // of a file: scrolling clamps, so the next change never reaches the
       // reading line. Jumps move this cursor; user scrolls re-sync it.
       const changeCursor = useRef(-1)
-      // Scroll position a jump produced. While the scroller still sits
-      // there, measurements must not rewind the cursor (a change near the
-      // end of a file can never be aligned at the top).
-      const jumpScroll = useRef(-1)
+      // The scroller a jump produced and where it sits. While that element
+      // still sits there, measurements must not rewind the cursor (a change
+      // near the end of a file can never be aligned at the top).
+      const jumpScroll = useRef(null)
 
       const targetKey = JSON.stringify(target ?? null)
       const rootRef = useRef(null)
@@ -1058,10 +1278,16 @@ window.__ModuleLoader__.load({
         }
       }, [targetKey])
 
+      /** The side-by-side scroll containers, in document order. */
+      function paneNodes() {
+        const body = bodyRef.current
+        return body ? [...body.querySelectorAll('.gwb-splitpane')] : []
+      }
+
       /**
-       * The element that really owns the scrollbar. In a standalone pane that
-       * is the diff body; inside the conversation view the host pane scrolls
-       * and the body grows to its full content height.
+       * The element that really owns the scrollbar. In a split view that is a
+       * pane; in the unified view the diff body; inside the conversation view
+       * the host pane scrolls and the body grows to its full content height.
        */
       function scrollHost() {
         const body = bodyRef.current
@@ -1083,12 +1309,21 @@ window.__ModuleLoader__.load({
 
       function resetScroll() {
         if (bodyRef.current) bodyRef.current.scrollTop = 0
+        for (const pane of paneNodes()) pane.scrollTop = 0
         const host = scrollHost()
         if (host) host.scrollTop = 0
       }
 
       function activeScroller() {
-        return scrollHost() ?? bodyRef.current
+        const pane = paneNodes().find((node) => node.scrollHeight > node.clientHeight + 1)
+        return pane ?? scrollHost() ?? bodyRef.current
+      }
+
+      /** The pane a jump should watch: its own scroll container when that
+       *  pane scrolls, otherwise whatever the view scrolls by. */
+      function jumpScroller(node) {
+        const pane = node?.closest?.('.gwb-splitpane')
+        return pane && pane.scrollHeight > pane.clientHeight + 1 ? pane : activeScroller()
       }
 
       /** The reading line: under the pinned header/toolbar when the host
@@ -1140,7 +1375,7 @@ window.__ModuleLoader__.load({
           focusTurnRef.current = -1
           pendingLand.current = null
           changeCursor.current = -1
-          jumpScroll.current = -1
+          jumpScroll.current = null
           resetScroll()
           try {
             if (isRev) {
@@ -1232,6 +1467,15 @@ window.__ModuleLoader__.load({
         return nodes
       }
 
+      /** A split section: version labels, its title, then the two panes. */
+      function splitSection(key, labels, title, hunks, options) {
+        return h('div', { key, className: 'gwb-splitblock' }, [
+          sideHeader(labels, `${key}-labels`),
+          h('div', { key: 't', className: 'gwb-section gwb-splitsec' }, title),
+          h(SplitView, { key: 'v', hunks, options }),
+        ])
+      }
+
       // The per-file payload: the working tree needs a request; a commit already
       // carries its hunks; a turn carries the whole snapshot.
       useEffect(() => {
@@ -1292,23 +1536,26 @@ window.__ModuleLoader__.load({
             : entries.reduce((sum, item) => sum + countChanges(item.diff?.hunks), 0)
 
       // The change counter follows the scroll position, like the IDE's
-      // "1/38 个更改" indicator. The diff body scrolls in a standalone pane;
-      // under the conversation view the host pane's scroller must be watched
-      // too, or the counter freezes at 1/N.
+      // "1/38 个更改" indicator. A split view scrolls in two panes, the
+      // unified view in the body, and under the conversation view the host
+      // pane's scroller must be watched too, or the counter freezes at 1/N.
       useEffect(() => {
         const view = bodyRef.current
         if (!view) return undefined
         const host = scrollHost()
-        const targets = host && host !== view ? [view, host] : [view]
-        const scroller = host ?? view
+        const panes = paneNodes()
+        const targets = [...new Set([view, ...panes, ...(host && host !== view ? [host] : [])])]
+        // "Reached the end" belongs to whichever scroller holds the content.
+        const scroller = paneNodes().find((pane) => pane.scrollHeight > pane.clientHeight + 1) ?? host ?? view
         let timer = 0
         const measure = () => {
           timer = 0
-          // A jump owns the cursor until the user moves the scroller away
+          // A jump owns the cursor until the user moves its scroller away
           // from the position the jump produced.
-          if (jumpScroll.current >= 0) {
-            if (Math.abs(scroller.scrollTop - jumpScroll.current) <= 1) return
-            jumpScroll.current = -1
+          if (jumpScroll.current) {
+            const jump = jumpScroll.current
+            if (jump.el?.isConnected && Math.abs(jump.el.scrollTop - jump.top) <= 1) return
+            jumpScroll.current = null
           }
           // Two panes share one scroller but not one row grid: document order
           // interleaves the columns, so order the heads by where they sit.
@@ -1377,7 +1624,8 @@ window.__ModuleLoader__.load({
         setActiveHunk(at)
         const targetNode = heads[at]
         targetNode.scrollIntoView({ block: mode === 'last' ? 'center' : 'start', behavior: 'instant' })
-        jumpScroll.current = activeScroller()?.scrollTop ?? -1
+        const scroller = jumpScroller(targetNode)
+        jumpScroll.current = scroller ? { el: scroller, top: scroller.scrollTop } : null
         targetNode.classList.add('gwb-flash')
         window.setTimeout(() => targetNode.classList.remove('gwb-flash'), 800)
       }, [payloadSettled, payload, index])
@@ -1587,7 +1835,7 @@ window.__ModuleLoader__.load({
       function resetFileState() {
         pendingLand.current = null
         changeCursor.current = -1
-        jumpScroll.current = -1
+        jumpScroll.current = null
         setSelection(new Set())
         setExpandedFolds(new Set())
         setBlame(null)
@@ -1697,7 +1945,8 @@ window.__ModuleLoader__.load({
         setActiveHunk(at)
         const node = heads[at]
         node.scrollIntoView({ block: 'start', behavior: 'instant' })
-        jumpScroll.current = activeScroller()?.scrollTop ?? -1
+        const scroller = jumpScroller(node)
+        jumpScroll.current = scroller ? { el: scroller, top: scroller.scrollTop } : null
         node.classList.add('gwb-flash')
         window.setTimeout(() => node.classList.remove('gwb-flash'), 800)
       }
@@ -1844,41 +2093,52 @@ window.__ModuleLoader__.load({
           }
           return [h('div', { key: 'e', className: 'gwb-loading' }, tt('diff.none'))]
         }
-        const options = { sideBySide: split, selection, readOnly: diffReadOnly, onToggle: toggleLine, lang, expandedFolds, onToggleFold: toggleFold, expandAll, highlight }
+        const options = { selection, readOnly: diffReadOnly, onToggle: toggleLine, lang, expandedFolds, onToggleFold: toggleFold, expandAll, highlight }
+        const stagedOptions = {
+          ...options,
+          side: 'staged',
+          stageHint: tt('unstage.lines'),
+          hunkLabel: tt('unstage.hunk'),
+          hunkAction: (hunkIndex) => void stage({ file: entry.path, direction: 'unstage', mode: 'hunk', hunk: hunkIndex }),
+          blockAction: (pick) => void stage({ file: entry.path, direction: 'unstage', mode: 'lines', selection: [pick] }),
+          blockArrow: 'right',
+          blockTitle: tt('diff.unstageBlock'),
+        }
+        const unstagedOptions = {
+          ...options,
+          side: 'unstaged',
+          stageHint: tt('stage.lines'),
+          hunkLabel: tt('stage.hunk'),
+          hunkAction: (hunkIndex) => void stage({ file: entry.path, direction: 'stage', mode: 'hunk', hunk: hunkIndex }),
+          blockAction: (pick) => void stage({ file: entry.path, direction: 'stage', mode: 'lines', selection: [pick] }),
+          blockArrow: 'left',
+          blockTitle: tt('diff.stageBlock'),
+        }
+        const sha = commit?.hash ?? target?.sha
         return [
+          // Each section compares its own two revisions: HEAD→index is not
+          // the same pair as index→worktree.
           payload.staged
-            ? h('div', { key: 's' }, [
-                // Each section compares its own two revisions: HEAD→index is
-                // not the same pair as index→worktree.
-                split ? sideHeader(sideLabels(source, 'staged', commit?.hash ?? target?.sha), 'sh-staged') : null,
-                h('div', { key: 't', className: 'gwb-section' }, tt('group.staged')),
-                ...renderHunks(payload.staged.hunks, {
-                  ...options,
-                  side: 'staged',
-                  stageHint: tt('unstage.lines'),
-                  hunkLabel: tt('unstage.hunk'),
-                  hunkAction: (hunkIndex) => void stage({ file: entry.path, direction: 'unstage', mode: 'hunk', hunk: hunkIndex }),
-                  blockAction: (pick) => void stage({ file: entry.path, direction: 'unstage', mode: 'lines', selection: [pick] }),
-                  blockArrow: 'right',
-                  blockTitle: tt('diff.unstageBlock'),
-                }),
-              ])
+            ? split
+              ? splitSection('s', sideLabels(source, 'staged', sha), tt('group.staged'), payload.staged.hunks, stagedOptions)
+              : h('div', { key: 's' }, [
+                  h('div', { key: 't', className: 'gwb-section' }, tt('group.staged')),
+                  ...renderHunks(payload.staged.hunks, stagedOptions),
+                ])
             : null,
           payload.unstaged
-            ? h('div', { key: 'u' }, [
-                split ? sideHeader(sideLabels(source, 'unstaged', commit?.hash ?? target?.sha), 'sh-unstaged') : null,
-                h('div', { key: 't', className: 'gwb-section' }, payload.entry?.kind === 'untracked' ? tt('group.untracked') : tt('group.unstaged')),
-                ...renderHunks(payload.unstaged.hunks, {
-                  ...options,
-                  side: 'unstaged',
-                  stageHint: tt('stage.lines'),
-                  hunkLabel: tt('stage.hunk'),
-                  hunkAction: (hunkIndex) => void stage({ file: entry.path, direction: 'stage', mode: 'hunk', hunk: hunkIndex }),
-                  blockAction: (pick) => void stage({ file: entry.path, direction: 'stage', mode: 'lines', selection: [pick] }),
-                  blockArrow: 'left',
-                  blockTitle: tt('diff.stageBlock'),
-                }),
-              ])
+            ? split
+              ? splitSection(
+                  'u',
+                  sideLabels(source, 'unstaged', sha),
+                  payload.entry?.kind === 'untracked' ? tt('group.untracked') : tt('group.unstaged'),
+                  payload.unstaged.hunks,
+                  unstagedOptions,
+                )
+              : h('div', { key: 'u' }, [
+                  h('div', { key: 't', className: 'gwb-section' }, payload.entry?.kind === 'untracked' ? tt('group.untracked') : tt('group.unstaged')),
+                  ...renderHunks(payload.unstaged.hunks, unstagedOptions),
+                ])
             : null,
         ]
       }
@@ -1898,11 +2158,13 @@ window.__ModuleLoader__.load({
           }
           return [h('div', { key: 'e', className: 'gwb-loading' }, tt('diff.noHunks'))]
         }
-        return [
-          split ? sideHeader(sideLabels(source, null, revLabel), 'sh-commit') : null,
-          h('div', { key: 't', className: 'gwb-section' }, tt(source === 'stash' ? 'diff.stashDiff' : 'log.commitDiff')),
-          ...renderHunks(commitEntry.hunks, { readOnly: true, sideBySide: split, onToggle: toggleLine, side: 'unstaged', lang, expandedFolds, onToggleFold: toggleFold, expandAll, highlight }),
-        ]
+        const revOptions = { readOnly: true, onToggle: toggleLine, side: 'unstaged', lang, expandedFolds, onToggleFold: toggleFold, expandAll, highlight }
+        return split
+          ? [splitSection('rev', sideLabels(source, null, revLabel), tt(source === 'stash' ? 'diff.stashDiff' : 'log.commitDiff'), commitEntry.hunks, revOptions)]
+          : [
+              h('div', { key: 't', className: 'gwb-section' }, tt(source === 'stash' ? 'diff.stashDiff' : 'log.commitDiff')),
+              ...renderHunks(commitEntry.hunks, revOptions),
+            ]
       }
 
       function renderTurn() {
@@ -1927,18 +2189,34 @@ window.__ModuleLoader__.load({
                   ? h('div', { className: 'gwb-loading' }, tt('diff.noHunks'))
                   : [
                       split ? sideHeader(sideLabels('turn'), `sh-turn-${item.index}`) : null,
-                      ...renderHunks(hunks, {
-                        readOnly: true,
-                        sideBySide: split,
-                        onToggle: toggleLine,
-                        side: 'unstaged',
-                        fileIndex: item.index,
-                        lang: langOf(item.path),
-                        expandedFolds,
-                        onToggleFold: toggleFold,
-                        expandAll,
-                        highlight,
-                      }),
+                      split
+                        ? h(SplitView, {
+                            key: 'v',
+                            hunks,
+                            unbounded: true,
+                            options: {
+                              readOnly: true,
+                              onToggle: toggleLine,
+                              side: 'unstaged',
+                              fileIndex: item.index,
+                              lang: langOf(item.path),
+                              expandedFolds,
+                              onToggleFold: toggleFold,
+                              expandAll,
+                              highlight,
+                            },
+                          })
+                        : renderHunks(hunks, {
+                            readOnly: true,
+                            onToggle: toggleLine,
+                            side: 'unstaged',
+                            fileIndex: item.index,
+                            lang: langOf(item.path),
+                            expandedFolds,
+                            onToggleFold: toggleFold,
+                            expandAll,
+                            highlight,
+                          }),
                     ],
             ),
           )
@@ -2166,11 +2444,12 @@ window.__ModuleLoader__.load({
         h(
           'div',
           {
-            className: `gwb-diffbody${wrap ? '' : ' gwb-nowrap'}${highlight === 'none' ? ' gwb-codeflat' : ''}`,
+            // Split sections hand their height to the two panes; only a turn
+            // snapshot (and the unified view) keeps scrolling the body.
+            className: `gwb-diffbody${wrap ? '' : ' gwb-nowrap'}${highlight === 'none' ? ' gwb-codeflat' : ''}${split && !blame && source !== 'turn' ? ' gwb-splitbody' : ''}`,
             ref: bodyRef,
             onContextMenu: onRowContext,
           },
-          h('div', { key: 'bands', className: 'gwb-bandlayer', ref: bandLayerRef, 'aria-hidden': 'true' }),
           error
             ? h(
                 'div',
@@ -2631,6 +2910,6 @@ window.__ModuleLoader__.load({
       const Body = target.mode === 'merge' ? MergeView : DiffView
       return h(Safe, null, h(Body, { target, sessionDir, canClose: true, onClose: closeDiffView }))
     }
-    return { diffStatsOf, highlightTokens, langOf, lineDiffSpans, wordDiffRanges, unifiedMarks, foldSegments, countChanges, unifiedRows, sideColumns, sideBlock, hunkBlock, DiffView, MergeView, GitDiffViewBody }
+    return { diffStatsOf, highlightTokens, langOf, lineDiffSpans, wordDiffRanges, unifiedMarks, foldSegments, countChanges, bandAt, transferY, bandPath, arrowTop, unifiedRows, sideColumns, paneRows, hunkBlock, DiffView, MergeView, GitDiffViewBody }
   },
 })
