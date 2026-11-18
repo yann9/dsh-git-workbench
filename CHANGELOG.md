@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.0 — 2026-11-18
+
+### Changed
+
+- In the side-by-side diff both line-number columns now sit against the centre
+  divider instead of the panes' outer edges, so the numbers and the change
+  bands read as one strip down the middle, as in an IDE.
+
+### Fixed
+
+- Switching to 对话 and back to 差异 no longer reopens the diff on the first
+  file: the pane resumes the file that was being read.
+
 ## 0.1.9 — 2026-11-17
 
 ### Added
