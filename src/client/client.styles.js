@@ -797,6 +797,16 @@ window.__ModuleLoader__.load({
 .gwb-drow { display: grid; align-items: stretch; min-width: 0; scroll-margin-top: 72px; }
 .gwb-drow[data-mode="side"] { position: relative; grid-template-columns: 46px 12px minmax(0,1fr); }
 .gwb-drow[data-mode="unified"] { grid-template-columns: 46px 46px 12px minmax(0,1fr); }
+/* Both gutters sit against the divider, not on the outer edges, so the two
+   line-number columns read as one strip beside the bands. The left pane
+   therefore mirrors its grid: code, stage gutter, number. */
+.gwb-splitpane[data-col="left"] .gwb-drow[data-mode="side"] { grid-template-columns: minmax(0,1fr) 12px 46px; }
+/* The cells keep their DOM order (number, stage gutter, code), so each needs an
+   explicit row: without it the mirrored columns would auto-place the three
+   cells one per row and triple every line's height. */
+.gwb-splitpane[data-col="left"] .gwb-drow[data-mode="side"] > .gwb-dc.code { grid-column: 1; grid-row: 1; }
+.gwb-splitpane[data-col="left"] .gwb-drow[data-mode="side"] > .gwb-dc.bar { grid-column: 2; grid-row: 1; }
+.gwb-splitpane[data-col="left"] .gwb-drow[data-mode="side"] > .gwb-dc.ln { grid-column: 3; grid-row: 1; }
 .gwb-dc { min-height: 21px; line-height: 21px; min-width: 0; overflow: hidden; }
 /* IDEA tints the gutter of a changed line instead of drawing a change bar, so
    the number column and the stage gutter paint as one strip of the change
