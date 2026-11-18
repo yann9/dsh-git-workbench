@@ -1127,6 +1127,14 @@ window.__ModuleLoader__.load({
       }, [ref])
     }
 
+    // The conversation host unmounts the inactive 差异 tab, so this pane's
+    // state dies whenever the reader visits 对话. Remember which file was being
+    // read against the same target object: an explicit open creates a new
+    // target (and must honour its own `file`), a tab switch remounts the old
+    // one and should land back where the reader left.
+    let resumeTarget = null
+    let resumePath = null
+
     function DiffView({ target, canClose, onClose, sessionDir }) {
       const source = target?.source ?? 'working'
       // A stash previews exactly like a commit: one immutable revision, no
@@ -1377,6 +1385,9 @@ window.__ModuleLoader__.load({
           changeCursor.current = -1
           jumpScroll.current = null
           resetScroll()
+          // A remount of the same target (an inactive tab) resumes the file the
+          // reader switched to; a fresh target opens the file it names.
+          const wantedPath = target === resumeTarget ? resumePath : target.file
           try {
             if (isRev) {
               const loaded = source === 'stash'
@@ -1385,7 +1396,7 @@ window.__ModuleLoader__.load({
               if (!alive) return
               setCommit(loaded)
               setEntries(loaded.files.map((file) => ({ path: file.path, diff: file })))
-              const at = loaded.files.findIndex((file) => file.path === target.file)
+              const at = loaded.files.findIndex((file) => file.path === wantedPath)
               setIndex(at >= 0 ? at : 0)
             } else if (source === 'turn') {
               const loaded = await Api.turn(dir, target.session, target.seq, target.index)
@@ -1418,7 +1429,7 @@ window.__ModuleLoader__.load({
                 list.push({ path: file.path, kind: file.kind })
               }
               setEntries(list)
-              const at = list.findIndex((entry) => entry.path === target.file)
+              const at = list.findIndex((entry) => entry.path === wantedPath)
               setIndex(at >= 0 ? at : 0)
             }
           } catch (cause) {
@@ -1430,6 +1441,18 @@ window.__ModuleLoader__.load({
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [targetKey, ignoreWhitespace])
+
+      // Track what a remount should resume: the target currently on screen and
+      // the file its reader actually landed on (arrows, file picker, staging).
+      useEffect(() => {
+        if (!target) return
+        if (target !== resumeTarget) {
+          resumeTarget = target
+          resumePath = target.file ?? null
+        }
+        const path = entries[index]?.path
+        if (path) resumePath = path
+      }, [target, entries, index])
 
       // Turn diffs render every file in one scroll: land on the file the card
       // pointed at instead of leaving it below the fold.
