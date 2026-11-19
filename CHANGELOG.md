@@ -11,11 +11,18 @@ All notable changes to this project are documented here. The format follows
 - In the side-by-side diff both line-number columns now sit against the centre
   divider instead of the panes' outer edges, so the numbers and the change
   bands read as one strip down the middle, as in an IDE.
+- The history date column now shows the commit date, so it agrees with the
+  order of the list; the author date stays available on the commit pane.
 
 ### Fixed
 
-- Switching to 对话 and back to 差异 no longer reopens the diff on the first
-  file: the pane resumes the file that was being read.
+- Switching away from the Diff tab and back no longer reopens the diff on the
+  first file: the pane resumes the file that was being read.
+- The history graph no longer draws branch lanes that start on the wrong
+  commit. The list is git's own `--date-order` walk, but it was re-sorted by
+  author date, so a rebased or cherry-picked commit — whose author date is
+  older than its parent's — put its parent above it and broke every lane
+  below.
 
 ## 0.1.9 — 2026-11-17
 
@@ -215,10 +222,11 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - The panes now appear in **dsh-better-sidebar's own tab bar** as well. That
-  plugin enumerates only its own `registerTab` registry, so 提交 / 历史 / 控制台
-  were invisible in its bottom workbench; they are offered to it through a soft
-  service lookup (the plugin stays entirely optional) with `bottomOnly`, which
-  keeps it from minting a competing native right-sidebar type.
+  plugin enumerates only its own `registerTab` registry, so Commit, History and
+  Console were invisible in its bottom workbench; they are offered to it
+  through a soft service lookup (the plugin stays entirely optional) with
+  `bottomOnly`, which keeps it from minting a competing native right-sidebar
+  type.
 - A marketplace icon (`assets/icon.png`, 512px, with the SVG source beside it),
   the `screenshots.json` list the curated catalog resolves from this repository,
   and `market/yann9__dsh-git-workbench.yml` — the entry to submit upstream.

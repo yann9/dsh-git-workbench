@@ -292,7 +292,7 @@ window.__ModuleLoader__.load({
           return name.replace(/^head -> /, '').includes(value)
         })
       }
-      if (term.key === 'date') return matchLogDate(entry.date, term.value)
+      if (term.key === 'date') return matchLogDate(entry.commitDate ?? entry.date, term.value)
       return true
     }
 
@@ -357,7 +357,7 @@ window.__ModuleLoader__.load({
         return { key: email ? `${name} <${email}>` : name, label: name, detail: email }
       }
       if (mode === 'date') {
-        const key = logDayKey(entry.date)
+        const key = logDayKey(entry.commitDate ?? entry.date)
         return { key, label: key, detail: '' }
       }
       return { key: '', label: '', detail: '' }
@@ -539,11 +539,13 @@ window.__ModuleLoader__.load({
     /**
      * The value a commit is compared by. The date is compared as a moment, not
      * as text: two commits can carry different time zones, and their text
-     * would order them wrong.
+     * would order them wrong. It is the committer date, because that is when
+     * the commit entered this history — a rebase or cherry-pick keeps the old
+     * author date, and sorting by it would put a parent above its child.
      */
     function logSortValue(entry, key) {
       if (key === 'date') {
-        const parsed = Date.parse(String(entry?.date ?? ''))
+        const parsed = Date.parse(String(entry?.commitDate ?? entry?.date ?? ''))
         return Number.isNaN(parsed) ? 0 : parsed
       }
       if (key === 'author') {
@@ -555,13 +557,18 @@ window.__ModuleLoader__.load({
 
     /**
      * Order the log by one column. The plain history order (newest first) is
-     * what the log already is, so it is returned untouched.
+     * what the log already is — git's `--date-order` walk — so it is returned
+     * untouched. Re-sorting that list, even "by the same date", cannot
+     * reproduce the walk: git interleaves branches by committer date and keeps
+     * every child above its parents, while any column sort is flat, so a
+     * second pass would break the parent links the graph draws.
      * @param {object[]} list
      * @param {{ key: string, dir: string }} sort
      * @returns {object[]}
      */
     function sortLogEntries(list, sort) {
       if (!sort || !LOG_SORT_KEYS.includes(sort.key)) return list
+      if (sort.key === 'date' && sort.dir !== 'asc') return list
       const dir = sort.dir === 'asc' ? 1 : -1
       return [...list].sort((a, b) => {
         const left = logSortValue(a, sort.key)
@@ -3514,7 +3521,17 @@ window.__ModuleLoader__.load({
             ? h('span', { className: 'gwb-author', title: String(entry.author ?? '') }, entry.author)
             : null,
           columns.date
-            ? h('span', { className: 'gwb-date', title: String(entry.date).replace('T', ' ').slice(0, 16) }, shortDate(entry.date))
+            ? h(
+                'span',
+                {
+                  className: 'gwb-date',
+                  // The list is git's walk, which is ordered by committer date.
+                  // Showing the author date here would make a cherry-pick look
+                  // out of order; the author date is still in the commit pane.
+                  title: String(entry.commitDate ?? entry.date).replace('T', ' ').slice(0, 16),
+                },
+                shortDate(entry.commitDate ?? entry.date),
+              )
             : null,
           columns.hash
             ? h('span', { className: 'gwb-hash', title: String(entry.hash ?? '') }, String(entry.hash ?? '').slice(0, 7))

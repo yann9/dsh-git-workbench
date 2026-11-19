@@ -326,6 +326,45 @@ test('computeGraph joins a merged branch back into the lane it came from', async
   assert.deepEqual(Array.from(rows[3].after), [], 'the last commit ends every lane')
 })
 
+test('the graph draws git’s walk, not a second sort by author date', async () => {
+  const { panes } = await loadClient()
+  // A cherry-pick keeps the author date of the original: `picked` was written
+  // in January but committed in October, after its own parent. Re-sorting the
+  // list by author date put that parent above its child, and the lane graph
+  // then drew the feature branch as starting from the wrong commit.
+  const list = [
+    { hash: 'tip', parents: ['merge'], date: '2026-10-21T10:00:00+08:00', commitDate: '2026-10-21T10:00:00+08:00' },
+    { hash: 'merge', parents: ['main2', 'picked'], date: '2026-10-20T10:00:00+08:00', commitDate: '2026-10-20T10:00:00+08:00' },
+    { hash: 'picked', parents: ['main1'], date: '2026-01-05T10:00:00+08:00', commitDate: '2026-10-19T10:00:00+08:00' },
+    { hash: 'main2', parents: ['main1'], date: '2026-10-11T10:00:00+08:00', commitDate: '2026-10-11T10:00:00+08:00' },
+    { hash: 'main1', parents: ['base'], date: '2026-10-10T10:00:00+08:00', commitDate: '2026-10-10T10:00:00+08:00' },
+    { hash: 'base', parents: [], date: '2026-01-01T10:00:00+08:00', commitDate: '2026-01-01T10:00:00+08:00' },
+  ]
+
+  // The history order is the walk git already performed, so it is returned
+  // as-is — a flat sort cannot reproduce it.
+  assert.equal(panes.sortLogEntries(list, { key: 'date', dir: 'desc' }), list)
+
+  // The date column compares committer dates, so even ascending order keeps
+  // the picked commit below the parent it was committed after.
+  assert.equal(
+    panes.logSortValue({ date: '2026-01-05T10:00:00+08:00', commitDate: '2026-10-19T10:00:00+08:00' }, 'date'),
+    Date.parse('2026-10-19T10:00:00+08:00'),
+  )
+  const ascending = panes.sortLogEntries(list, { key: 'date', dir: 'asc' })
+  assert.deepEqual(Array.from(ascending, (entry) => entry.hash), ['base', 'main1', 'main2', 'picked', 'merge', 'tip'])
+
+  // And the graph over the untouched order never holds a lane for a commit
+  // that already scrolled past.
+  const rows = panes.computeGraph(list)
+  rows.forEach((row, index) => {
+    for (const hash of row.after) {
+      if (!hash) continue
+      assert.ok(list.slice(index + 1).some((entry) => entry.hash === hash), `${hash} still appears below ${list[index].hash}`)
+    }
+  })
+})
+
 test('the log search reads structured conditions and keeps the rest as free text', async () => {
   const { panes } = await loadClient()
   const parsed = panes.parseLogQuery('author:ada message:fix')
@@ -487,9 +526,10 @@ test('the log sorts by a column the way the IDE table does', async () => {
     { hash: 'ccc333', subject: 'fix(app): seed loading follows the retry policy', author: 'Ada Lovelace', email: 'ada@example.com', date: '2026-10-16T11:00:00+08:00' },
   ]
 
-  // The history order is the one the log already has: newest first.
+  // The history order is the one the log already has: newest first. Asking for
+  // it back hands over the untouched walk instead of re-sorting it.
   assert.equal(panes.logGraphVisible({ key: 'date', dir: 'desc' }), true)
-  assert.equal(panes.sortLogEntries(list, { key: 'date', dir: 'desc' })[0].hash, 'ccc333')
+  assert.equal(panes.sortLogEntries(list, { key: 'date', dir: 'desc' }), list)
 
   // A column sorts ascending first, then flips.
   const bySubject = panes.sortLogEntries(list, { key: 'subject', dir: 'asc' })
