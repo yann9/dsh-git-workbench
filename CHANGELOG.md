@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- A repository change no longer throws an open working-tree diff back to the
+  first line. A refresh of the same file replaces its hunks, and the split
+  panes treated any new payload as a new file; they now reset only when the
+  file itself changes.
+
 ## 0.2.0 — 2026-11-18
 
 ### Changed

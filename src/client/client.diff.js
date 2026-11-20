@@ -800,7 +800,7 @@ window.__ModuleLoader__.load({
      * view (a card inside a scrolling page) cannot own the scroll: its panes
      * grow to their content and the page keeps scrolling.
      */
-    function SplitView({ hunks, options, unbounded = false }) {
+    function SplitView({ hunks, options, unbounded = false, fileKey = '' }) {
       const leftRef = useRef(null)
       const rightRef = useRef(null)
       const dividerRef = useRef(null)
@@ -816,7 +816,7 @@ window.__ModuleLoader__.load({
       // The scroll position each pane was last moved to by the other one, to
       // tell its echo from the user.
       const movedRef = useRef({ left: null, right: null })
-      const prevHunksRef = useRef(hunks)
+      const prevFileRef = useRef(fileKey)
       const frameRef = useRef(0)
       const drawRef = useRef(() => {})
       const followRef = useRef(() => {})
@@ -1009,11 +1009,12 @@ window.__ModuleLoader__.load({
         frameRef.current = requestAnimationFrame(() => drawRef.current())
       }
 
-      // A new payload resets both panes; the pane scrollTop would otherwise
-      // carry over from the previous file.
+      // A different file gets fresh panes; a repo-change reload of the same
+      // file must keep its place, or every refresh throws the reader back to
+      // the first line.
       useLayoutEffect(() => {
-        if (prevHunksRef.current === hunks) return
-        prevHunksRef.current = hunks
+        if (prevFileRef.current === fileKey) return
+        prevFileRef.current = fileKey
         if (leftRef.current) leftRef.current.scrollTop = 0
         if (rightRef.current) rightRef.current.scrollTop = 0
         movedRef.current = { left: null, right: null }
@@ -1491,11 +1492,11 @@ window.__ModuleLoader__.load({
       }
 
       /** A split section: version labels, its title, then the two panes. */
-      function splitSection(key, labels, title, hunks, options) {
+      function splitSection(key, labels, title, hunks, options, fileKey) {
         return h('div', { key, className: 'gwb-splitblock' }, [
           sideHeader(labels, `${key}-labels`),
           h('div', { key: 't', className: 'gwb-section gwb-splitsec' }, title),
-          h(SplitView, { key: 'v', hunks, options }),
+          h(SplitView, { key: 'v', hunks, options, fileKey }),
         ])
       }
 
@@ -2143,7 +2144,7 @@ window.__ModuleLoader__.load({
           // the same pair as index→worktree.
           payload.staged
             ? split
-              ? splitSection('s', sideLabels(source, 'staged', sha), tt('group.staged'), payload.staged.hunks, stagedOptions)
+              ? splitSection('s', sideLabels(source, 'staged', sha), tt('group.staged'), payload.staged.hunks, stagedOptions, entry?.path)
               : h('div', { key: 's' }, [
                   h('div', { key: 't', className: 'gwb-section' }, tt('group.staged')),
                   ...renderHunks(payload.staged.hunks, stagedOptions),
@@ -2157,6 +2158,7 @@ window.__ModuleLoader__.load({
                   payload.entry?.kind === 'untracked' ? tt('group.untracked') : tt('group.unstaged'),
                   payload.unstaged.hunks,
                   unstagedOptions,
+                  entry?.path,
                 )
               : h('div', { key: 'u' }, [
                   h('div', { key: 't', className: 'gwb-section' }, payload.entry?.kind === 'untracked' ? tt('group.untracked') : tt('group.unstaged')),
@@ -2183,7 +2185,7 @@ window.__ModuleLoader__.load({
         }
         const revOptions = { readOnly: true, onToggle: toggleLine, side: 'unstaged', lang, expandedFolds, onToggleFold: toggleFold, expandAll, highlight }
         return split
-          ? [splitSection('rev', sideLabels(source, null, revLabel), tt(source === 'stash' ? 'diff.stashDiff' : 'log.commitDiff'), commitEntry.hunks, revOptions)]
+          ? [splitSection('rev', sideLabels(source, null, revLabel), tt(source === 'stash' ? 'diff.stashDiff' : 'log.commitDiff'), commitEntry.hunks, revOptions, entry?.path)]
           : [
               h('div', { key: 't', className: 'gwb-section' }, tt(source === 'stash' ? 'diff.stashDiff' : 'log.commitDiff')),
               ...renderHunks(commitEntry.hunks, revOptions),
@@ -2216,6 +2218,7 @@ window.__ModuleLoader__.load({
                         ? h(SplitView, {
                             key: 'v',
                             hunks,
+                            fileKey: item.path,
                             unbounded: true,
                             options: {
                               readOnly: true,
