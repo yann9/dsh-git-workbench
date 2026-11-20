@@ -755,6 +755,8 @@ window.__ModuleLoader__.load({
         'err.turnGone': '宿主已经不再提供这一轮的改动快照：它只跟着当前打开的会话存在，会话关掉重开或宿主重启后就没了；交付卡片上列出的文件本来也不在这份记录里。要看这些文件相对 HEAD 的改动，请打开 Git 提交页。',
         'err.turnService': '当前 DSH 版本没有提供「本轮改动」服务，读不到这一轮的快照。',
         'err.turnCoords': '这张卡片没有带上会话和轮次坐标，无法确定它属于哪一轮改动。',
+        'err.diffStale': '文件在面板读取 diff 之后又被改过，这份改动已经过期。已重新读取，请再试一次。',
+        'err.revertUntracked': '未跟踪的文件还没有被 git 记录，没有可撤销的改动。',
         'err.rebaseDirty': '变基前工作区必须是干净的：先提交或储藏更改',
         'err.rebaseBase': '这个提交不在当前分支上，无法从它开始变基',
         'err.rebaseSelf': '不能把当前分支变基到它自己',
@@ -1445,6 +1447,8 @@ window.__ModuleLoader__.load({
         'err.turnGone': 'The host no longer serves this turn\'s change snapshot: it only exists while the session is open, so a reopened session or a restart drops it — and the files listed on a delivery card were never part of that record. Open the Git commit pane to see these files against HEAD.',
         'err.turnService': 'This DSH build does not expose the per-turn changes service, so the snapshot cannot be read.',
         'err.turnCoords': 'This card carried no session and turn coordinates, so there is no turn to resolve.',
+        'err.diffStale': 'The file changed after this diff was read, so the panel is out of date. It has been reloaded; try again.',
+        'err.revertUntracked': 'Untracked files are not recorded by git yet, so there is nothing to revert.',
         'err.rebaseDirty': 'Rebase needs a clean working tree: commit or stash first',
         'err.rebaseBase': 'That commit is not on the current branch, so a rebase cannot start there',
         'err.rebaseSelf': 'Cannot rebase the current branch onto itself',
@@ -1473,6 +1477,22 @@ window.__ModuleLoader__.load({
       return text
     }
 
+    // A write computed from a diff that has since gone stale: the file moved
+    // on under the panel, so the hunk and line indexes no longer resolve.
+    const STALE_DIFF_PATTERNS = [
+      /^line \d+ not found in /,
+      /^hunk \d+ not found in /,
+      /^the file changed since the diff was read: /,
+      /^file is not in the working-tree status: /,
+      /^no (?:staged |worktree )?changes for /,
+      /patch (?:failed|does not apply)/,
+    ]
+
+    function isStaleDiffMessage(error) {
+      const raw = typeof error?.message === 'string' ? error.message : String(error)
+      return STALE_DIFF_PATTERNS.some((pattern) => pattern.test(raw))
+    }
+
     function localizeError(error) {
       // Duck-typed on purpose: `instanceof Error` is realm-fragile and the
       // message is all we ever wanted anyway.
@@ -1483,6 +1503,8 @@ window.__ModuleLoader__.load({
       const kept = raw.split('\n').filter((line) => !/^\s*hint:/.test(line))
       const message = (kept.length > 6 ? `${kept.slice(0, 6).join('\n')}\n…` : kept.join('\n')).trim()
       const rules = [
+        ...STALE_DIFF_PATTERNS.map((pattern) => [pattern, () => tt('err.diffStale')]),
+        [/^untracked files have nothing to revert/, () => tt('err.revertUntracked')],
         [/^refusing to delete the default branch (\S+)/, (match) => tt('err.defaultBranch', { branch: match[1] })],
         [/^nothing staged in this changelist/, () => tt('changelist.nothingStaged')],
         [/^nothing staged/, () => tt('err.nothingStaged')],
@@ -1567,6 +1589,6 @@ window.__ModuleLoader__.load({
       // The prefix is git raising its voice, not information.
       return message.replace(/^(?:fatal|error):\s*/i, '')
     }
-    return { isZh, say, activeLanguage, STRINGS, tt, localizeError, attachLocale, useLocaleVersion, LOCALE_NS }
+    return { isZh, say, activeLanguage, STRINGS, tt, localizeError, isStaleDiffMessage, attachLocale, useLocaleVersion, LOCALE_NS }
   },
 })

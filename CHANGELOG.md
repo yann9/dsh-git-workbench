@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format follows
   first line. A refresh of the same file replaces its hunks, and the split
   panes treated any new payload as a new file; they now reset only when the
   file itself changes.
+- Staging or discarding from a diff the file has outgrown no longer answers
+  with git's own line ("line 36 not found in hunk 0", "patch does not apply").
+  The pane says the diff is out of date in the UI language and re-reads it, so
+  the next click works; discarding in an untracked file explains why there is
+  nothing to discard.
 
 ## 0.2.0 — 2026-11-18
 

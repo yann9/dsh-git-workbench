@@ -11,7 +11,7 @@ window.__ModuleLoader__.load({
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
     const { Api, COMMIT_KIND, closeDiffView, config, diffTargetStore, openDiff, openTab, statusColor, useRepoChanges, useSessionDirectory } = kit
     const { Badge, GitIcons, IconBtn, Menu, MenuRow, Safe, copyText, iconMarkup, openContextMenu, reportError, showConfirm, showToast } = require('@yann9/dsh-git-workbench/client.ui.js')
-    const { tt, localizeError } = require('@yann9/dsh-git-workbench/client.i18n.js')
+    const { tt, localizeError, isStaleDiffMessage } = require('@yann9/dsh-git-workbench/client.i18n.js')
 
     /* ------------------------------------------------------------ diff grid */
 
@@ -1711,6 +1711,9 @@ window.__ModuleLoader__.load({
           await Api.stage(dir, { full: usesFullContext(), ...body })
           await refreshAfterMutation(body.file)
         } catch (cause) {
+          // A diff that changed under the panel cannot be staged from stale
+          // hunk indexes: re-read it so the message's "try again" is true.
+          if (source === 'working' && isStaleDiffMessage(cause)) await refreshAfterMutation(body.file)
           reportError(cause)
         } finally {
           setBusy(false)
@@ -1728,6 +1731,7 @@ window.__ModuleLoader__.load({
           showToast(doneText)
           await refreshAfterMutation(entry.path)
         } catch (cause) {
+          if (isStaleDiffMessage(cause)) await refreshAfterMutation(entry.path)
           reportError(cause)
         } finally {
           setBusy(false)

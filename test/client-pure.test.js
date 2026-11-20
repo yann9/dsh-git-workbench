@@ -631,6 +631,14 @@ test("git's own refusals answer in the UI language", async () => {
     'the rebase plan must include every commit exactly once': /重新发起/,
     'the first kept commit cannot be squashed': /第一条/,
     'a branch called main already exists': /已存在/,
+    // a write from a diff the file has outgrown
+    'line 36 not found in hunk 0': /过期/,
+    'hunk 2 not found in src/app.js': /过期/,
+    'the file changed since the diff was read: src/app.js': /过期/,
+    'file is not in the working-tree status: src/app.js': /过期/,
+    'no worktree changes for src/app.js': /过期/,
+    'git apply --cached --whitespace=nowarn --recount - failed (exit 1): error: patch failed: src/app.js:12\nerror: src/app.js: patch does not apply': /过期/,
+    'untracked files have nothing to revert': /未跟踪/,
     // the per-turn snapshot is the host's own record, and it can be gone
     'this turn is no longer available: summaries live only while the session lives in this host process': /快照/,
     'this harness build does not expose workspace changes (workspaceChanges service missing)': /本轮改动/,
@@ -641,6 +649,15 @@ test("git's own refusals answer in the UI language", async () => {
     const text = zh.localizeError(new Error(raw))
     assert.match(text, expected, `${raw.split('\n')[0]} must not stay in git's English: ${text}`)
   }
+})
+
+test('a stale diff is recognised for the pane to reload', async () => {
+  const { i18n } = await loadClient('zh-CN')
+  assert.equal(i18n.isStaleDiffMessage(new Error('line 36 not found in hunk 0')), true)
+  assert.equal(i18n.isStaleDiffMessage(new Error('the file changed since the diff was read: a.js')), true)
+  assert.equal(i18n.isStaleDiffMessage(new Error('error: src/a.js: patch does not apply')), true)
+  assert.equal(i18n.isStaleDiffMessage(new Error('git identity is not configured')), false)
+  assert.equal(i18n.isStaleDiffMessage(new Error('weird upstream failure')), false)
 })
 
 test('both card flavours open the in-conversation diff for their turn', async () => {
