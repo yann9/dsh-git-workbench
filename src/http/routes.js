@@ -508,7 +508,7 @@ async function handleApi(req, res, route, url, service, options) {
       sendJson(res, 200, await service.pull({ dir, rebase: body.rebase === true }))
       return
     case '/push':
-      sendJson(res, 200, await service.push({ dir, force: body.force === true, remote: body.remote }))
+      sendJson(res, 200, await service.push({ dir, force: body.force === true, remote: body.remote, target: body.target, setUpstream: body.setUpstream === true }))
       return
     case '/fetch':
       sendJson(res, 200, await service.fetchAll({ dir }))

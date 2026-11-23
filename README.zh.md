@@ -129,6 +129,9 @@ dsh plugin --profile web remove @yann9/dsh-git-workbench
 | 刷新 | `F5` |
 | 提交 | `Ctrl/Cmd + Enter` |
 | 聚焦提交信息 | `Ctrl/Cmd + K` |
+| 拉取 / 获取当前分支 | `Ctrl/Cmd + Alt + U` / `Ctrl/Cmd + Alt + F` |
+| 打开推送对话框 | `Ctrl/Cmd + Shift + K` |
+| 新建分支 | `Ctrl/Cmd + Alt + C` |
 | AI 生成提交信息 | `Ctrl/Cmd + G` |
 | 上一个 / 下一个文件 | `Alt + ↑` / `Alt + ↓`，或头部 `‹ n/m ›` |
 | 上一个 / 下一个差异块 | `Shift + F7` / `F7`，或工具栏 `↑ 差异 ↓`（走到头自动进相邻文件） |

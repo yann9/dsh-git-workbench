@@ -650,6 +650,186 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The push dialog: the branch this commit is published to, the remote it
+     * goes to, and whether the push also becomes the branch's upstream. The
+     * plain push button never opens it — its caret and the force variant do —
+     * so an ordinary push stays one click and the toolbar keeps its size.
+     * @param {{ branch?: string, upstream?: string, remotes?: { name: string, url?: string }[], force?: boolean }} options
+     * @returns {Promise<{ target: string, remote: string, setUpstream: boolean, force: boolean } | null>}
+     */
+    function showPushDialog(options = {}) {
+      const branch = String(options.branch ?? '')
+      const upstream = String(options.upstream ?? '')
+      const remotes = (Array.isArray(options.remotes) ? options.remotes : []).filter(
+        (remote) => remote && typeof remote.name === 'string' && remote.name !== '',
+      )
+      const slash = upstream.indexOf('/')
+      const upstreamRemote = slash > 0 ? upstream.slice(0, slash) : ''
+      const upstreamBranch = slash > 0 ? upstream.slice(slash + 1) : ''
+      const defaultTarget = upstreamBranch || branch
+      const defaultRemote = remotes.some((remote) => remote.name === upstreamRemote)
+        ? upstreamRemote
+        : remotes.some((remote) => remote.name === 'origin')
+          ? 'origin'
+          : remotes[0]?.name ?? ''
+      // The same shape the host validates: letters (any script), digits and
+      // . _ / -, with no leading dash and no revision range.
+      const validTarget = (value) =>
+        value.length > 0 && value.length <= 255 && /^[\p{L}\p{N}._/-]+$/u.test(value) && !value.startsWith('-') && !value.includes('..')
+      return new Promise((resolve) => {
+        const id = `gwb-push-${Date.now()}`
+        const backdrop = document.createElement('div')
+        backdrop.className = 'gwb-confirm-backdrop'
+        const dialog = document.createElement('div')
+        dialog.className = 'gwb-confirm gwb-stash-dialog gwb-push'
+        dialog.setAttribute('role', 'dialog')
+        dialog.setAttribute('aria-modal', 'true')
+        const title = document.createElement('div')
+        title.className = 'gwb-stash-title'
+        title.id = id
+        title.textContent = tt('push.title')
+        dialog.setAttribute('aria-labelledby', id)
+
+        const targetLabel = document.createElement('label')
+        targetLabel.className = 'gwb-stash-label'
+        targetLabel.setAttribute('for', `${id}-target`)
+        targetLabel.textContent = tt('push.target')
+        const targetInput = document.createElement('input')
+        targetInput.className = 'gwb-stash-input'
+        targetInput.id = `${id}-target`
+        targetInput.type = 'text'
+        targetInput.spellcheck = false
+        targetInput.autocomplete = 'off'
+        targetInput.value = defaultTarget
+        targetInput.placeholder = tt('push.targetPlaceholder')
+        const targetHint = document.createElement('div')
+        targetHint.className = 'gwb-stash-hint'
+        targetHint.textContent = tt('push.targetHint')
+
+        let remoteLabel = null
+        let remoteSelect = null
+        if (remotes.length > 1) {
+          remoteLabel = document.createElement('label')
+          remoteLabel.className = 'gwb-stash-label'
+          remoteLabel.setAttribute('for', `${id}-remote`)
+          remoteLabel.textContent = tt('push.remote')
+          remoteSelect = document.createElement('select')
+          remoteSelect.className = 'gwb-stash-input'
+          remoteSelect.id = `${id}-remote`
+          for (const remote of remotes) {
+            const option = document.createElement('option')
+            option.value = remote.name
+            option.textContent = remote.name
+            option.selected = remote.name === defaultRemote
+            remoteSelect.appendChild(option)
+          }
+        }
+
+        const checkRow = (checked, labelKey) => {
+          const label = document.createElement('label')
+          label.className = 'gwb-confirm-option'
+          const box = document.createElement('input')
+          box.type = 'checkbox'
+          box.checked = checked
+          const text = document.createElement('span')
+          text.textContent = tt(labelKey)
+          label.append(box, text)
+          return { label, box }
+        }
+        // "Temporary" is the default once the branch already tracks something:
+        // pushing somewhere else must not quietly retarget pull as well.
+        const upstreamRow = checkRow(upstream === '', 'push.setUpstream')
+        const upstreamHint = document.createElement('div')
+        upstreamHint.className = 'gwb-stash-hint'
+        upstreamHint.textContent = tt('push.setUpstreamHint')
+        const forceRow = checkRow(options.force === true, 'push.force')
+        const forceHint = document.createElement('div')
+        forceHint.className = 'gwb-stash-hint'
+        forceHint.textContent = tt('push.forceHint')
+
+        const row = document.createElement('div')
+        row.className = 'gwb-stash-row'
+        const preview = document.createElement('span')
+        preview.className = 'gwb-stash-count'
+        const cancel = document.createElement('button')
+        cancel.className = 'gwb-btn ghost'
+        cancel.textContent = tt('confirm.cancel')
+        const ok = document.createElement('button')
+        ok.className = 'gwb-btn primary'
+        ok.textContent = tt('push.ok')
+        row.append(preview, cancel, ok)
+
+        dialog.append(
+          title,
+          targetLabel,
+          targetInput,
+          targetHint,
+          ...(remoteSelect ? [remoteLabel, remoteSelect] : []),
+          upstreamRow.label,
+          upstreamHint,
+          forceRow.label,
+          forceHint,
+          row,
+        )
+        backdrop.appendChild(dialog)
+        document.body.appendChild(backdrop)
+
+        const target = () => targetInput.value.trim()
+        const remote = () => (remoteSelect ? remoteSelect.value : defaultRemote)
+        const sync = () => {
+          const value = target()
+          preview.textContent = `${branch || 'HEAD'} → ${remote() ? `${remote()}/` : ''}${value || '…'}`
+          ok.disabled = value === ''
+          ok.className = `gwb-btn ${forceRow.box.checked ? 'danger' : 'primary'}`
+        }
+        const settle = (value) => {
+          backdrop.remove()
+          document.removeEventListener('keydown', onKey, true)
+          resolve(value)
+        }
+        const submit = () => {
+          const value = target()
+          if (!validTarget(value)) {
+            targetHint.textContent = value === '' ? tt('push.targetEmpty') : tt('push.targetInvalid')
+            targetHint.classList.add('bad')
+            targetInput.focus()
+            return
+          }
+          settle({ target: value, remote: remote(), setUpstream: upstreamRow.box.checked, force: forceRow.box.checked })
+        }
+        const onKey = (event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation()
+            settle(null)
+          }
+        }
+
+        targetInput.addEventListener('input', () => {
+          targetHint.textContent = tt('push.targetHint')
+          targetHint.classList.remove('bad')
+          sync()
+        })
+        forceRow.box.addEventListener('change', sync)
+        targetInput.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          submit()
+        })
+        backdrop.addEventListener('mousedown', (event) => {
+          if (event.target === backdrop) settle(null)
+        })
+        cancel.addEventListener('click', () => settle(null))
+        ok.addEventListener('click', submit)
+        document.addEventListener('keydown', onKey, true)
+        sync()
+        window.setTimeout(() => {
+          targetInput.focus()
+          targetInput.select()
+        }, 30)
+      })
+    }
+
+    /**
      * Git refuses a commit it cannot attribute. The dialog collects the two
      * values it asks for and hands them back; the caller writes them and
      * retries, so this stays a form and never talks to the API itself.
@@ -1616,7 +1796,12 @@ window.__ModuleLoader__.load({
     const ICON_SHAPES = {
       pull: [['path', 'M8 2v9'], ['path', 'M4.6 7.6 8 11l3.4-3.4'], ['path', 'M2.6 13.6h10.8']],
       push: [['path', 'M8 13V4'], ['path', 'M4.6 7.4 8 4l3.4 3.4'], ['path', 'M2.6 13.6h10.8']],
-      fetch: [['path', 'M8 2.2v8'], ['path', 'M5.2 7.4 8 10.2l2.8-2.8'], ['path', 'M3 13.6h10']],
+      // Fetch's own glyph: a turning arrow, not the pull arrow. The two read
+      // as different operations, and only fetch sits beside the search box.
+      refresh: [
+        ['path', 'M13.2 8a5.2 5.2 0 1 1-1.8-4'],
+        ['path', 'M13.4 2.4v3.5h-3.5'],
+      ],
       branch: [
         ['circle', 5, 12.4, 1.5],
         ['circle', 11, 3.6, 1.5],
@@ -1717,6 +1902,6 @@ window.__ModuleLoader__.load({
       return h('button', { className: 'gwb-chipbtn', title, 'aria-label': title, onClick }, h(GitIcon), h('span', null, children))
     }
 
-    return { showToast, reportError, showConfirm, showCheckFailure, showStashDialog, missingIdentity, askIdentity, withIdentity, showRemotesDialog, showRewordDialog, showRebaseDialog, copyText, openContextMenu, closeContextMenu, openNamePrompt, FolderIcon, GitIcon, GitIcons, iconMarkup, Chip, Badge, IconBtn, Menu, MenuRow, FilePath, Safe }
+    return { showToast, reportError, showConfirm, showCheckFailure, showStashDialog, showPushDialog, missingIdentity, askIdentity, withIdentity, showRemotesDialog, showRewordDialog, showRebaseDialog, copyText, openContextMenu, closeContextMenu, openNamePrompt, FolderIcon, GitIcon, GitIcons, iconMarkup, Chip, Badge, IconBtn, Menu, MenuRow, FilePath, Safe }
   },
 })

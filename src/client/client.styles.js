@@ -1068,41 +1068,49 @@ window.__ModuleLoader__.load({
   background: var(--gwb-bg);
   border-bottom: 1px solid var(--gwb-border);
 }
-.gwb-menu .gwb-menu-search { padding: 0 2px 8px; }
+.gwb-menu .gwb-menu-search { display: flex; align-items: center; gap: 6px; padding: 0 2px 8px; }
+.gwb-menu .gwb-menu-search input { flex: 1 1 auto; min-width: 0; }
+/* The IDE's synchronize button: a turning arrow at the right of the search
+   field, sized like the rows' trailing controls. */
+.gwb-menu .gwb-menu-fetch {
+  flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; color: var(--gwb-dim); cursor: pointer;
+}
+.gwb-menu .gwb-menu-fetch:hover { color: var(--gwb-text); background: var(--gwb-hover); }
+.gwb-menu .gwb-menu-fetch.busy { color: var(--gwb-accent-ink); background: var(--gwb-accent-soft); }
 .gwb-menu .gwb-menu-sticky .gwb-menu-actions { margin-bottom: 0; border-bottom: 0; }
 
-/* The repo operations read as one compact tool strip: five equal cells, an
-   16px glyph over its label, all monochrome. The old cells stacked a 12px
-   glyph inside a 26px box and grew to 61px tall, twice a list row. */
+/* The repo operations, one row each, the way the IDE lists them: a glyph, the
+   verb, and the row's own control at the trailing edge. The old strip packed
+   five equal cells into a menu and read as a toolbar in the wrong place. */
 .gwb-menu .gwb-menu-actions {
-  display: flex; gap: 2px; padding: 3px;
+  display: flex; flex-direction: column; gap: 1px; padding: 2px 0;
   border-bottom: 1px solid var(--gwb-border); margin-bottom: 4px;
 }
 .gwb-menu .gwb-menu-actions .gwb-menu-row {
-  flex: 1 1 0; flex-direction: column; justify-content: center; gap: 3px;
-  min-width: 0; min-height: 24px; padding: 4px 2px; border-radius: 6px;
-  font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden;
+  min-height: 26px; padding: 0 12px; gap: 9px; font-size: 12px;
 }
-.gwb-menu .gwb-action-line { display: inline-flex; align-items: center; justify-content: center; gap: 2px; max-width: 100%; min-width: 0; }
-.gwb-menu .gwb-action-label { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gwb-menu .gwb-menu-actions .gwb-menu-row .gwb-rowicon {
-  width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
-}
-/* Each operation cell keeps the same neutral glyph: a hue per position would
-   make the strip look like five different kinds of control. */
-.gwb-menu .gwb-action-cell { display: flex; flex: 1 1 0; min-width: 0; }
-.gwb-menu .gwb-action-cell .gwb-menu-row { flex: 1 1 auto; }
-.gwb-menu .gwb-menu-actions .gwb-menu-row:hover .gwb-rowicon { filter: brightness(.96); }
-/* The cell that launched the operation still running stays marked, so reopening
-   the menu answers "did my click land?" before the user tries it again. */
-.gwb-menu .gwb-action-cell.busy .gwb-menu-row { background: var(--gwb-accent-soft); }
-.gwb-menu .gwb-action-cell.busy .gwb-action-label { color: var(--gwb-accent-ink); }
-/* Label and caret stay one inline unit under the icon. The caret used to sit
-   outside the cell, absolutely positioned, where the row's overflow cut it. */
-.gwb-menu .gwb-action-caret {
-  flex: none; width: 14px; height: 16px; margin-right: -2px;
+  width: 16px; height: 16px; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 3px; color: var(--gwb-dim); font-size: 11px; line-height: 1; cursor: pointer;
+  color: var(--gwb-dim);
+}
+.gwb-menu .gwb-action-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The shortcut text is the only part pushed to the right edge; the variants
+   caret stays beside the verb it belongs to. */
+.gwb-menu .gwb-action-tail { flex: none; margin-left: auto; display: inline-flex; align-items: center; padding-left: 10px; }
+.gwb-menu .gwb-action-hint { flex: none; color: var(--gwb-faint); font-size: 10.5px; letter-spacing: .2px; white-space: nowrap; }
+/* The operation still running stays marked, so reopening the menu answers
+   "did my click land?" before the user tries it again. */
+.gwb-menu .gwb-action-row.busy .gwb-menu-row { background: var(--gwb-accent-soft); }
+.gwb-menu .gwb-action-row.busy .gwb-action-label { color: var(--gwb-accent-ink); }
+/* The variant caret sits right after the verb, small and dim like the IDE's
+   submenu marker. */
+.gwb-menu .gwb-action-caret {
+  flex: none; width: 14px; height: 20px; margin: 0 0 0 1px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 4px; color: var(--gwb-dim); font-size: 10px; line-height: 1; cursor: pointer;
   font-family: inherit; background: none; border: 0; padding: 0;
 }
 .gwb-menu .gwb-action-caret:hover { color: var(--gwb-text); background: color-mix(in srgb, var(--gwb-text) 12%, transparent); }
@@ -1341,6 +1349,16 @@ window.__ModuleLoader__.load({
 .gwb-stash-count.error { color: var(--gwb-error-ink); }
 .gwb-identity-scope { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12px; color: var(--gwb-dim); cursor: pointer; }
 .gwb-identity-scope input[type="checkbox"] { cursor: pointer; }
+
+/* ---------------------------------------------------------- push dialog */
+
+/* The form keeps the shared dialog width; only the vertical rhythm is tuned:
+   two choice rows with their own line of explanation, and the preview in the
+   footer naming what is about to be updated. */
+.gwb-push .gwb-confirm-option { margin-bottom: 3px; }
+.gwb-push .gwb-stash-hint.bad { color: var(--gwb-error-ink); }
+.gwb-push select.gwb-stash-input { width: 100%; }
+.gwb-push .gwb-stash-row { margin-top: 4px; }
 
 /* ------------------------------------------------------- remotes manager */
 

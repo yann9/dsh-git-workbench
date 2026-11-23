@@ -122,6 +122,9 @@ The full 50+ item comparison against JetBrains is in [docs/features.md](docs/fea
 | Refresh | `F5` |
 | Commit | `Ctrl/Cmd + Enter` |
 | Focus the message box | `Ctrl/Cmd + K` |
+| Pull / fetch the current branch | `Ctrl/Cmd + Alt + U` / `Ctrl/Cmd + Alt + F` |
+| Open the push dialog | `Ctrl/Cmd + Shift + K` |
+| New branch | `Ctrl/Cmd + Alt + C` |
 | Draft the message with the model | `Ctrl/Cmd + G` |
 | Previous / next file | `Alt + ↑` / `Alt + ↓`, or the `‹ n/m ›` in the diff header |
 | Previous / next hunk | `Shift + F7` / `F7`, or the `↑ Hunk ↓` toolbar — walking off either end continues into the neighbouring file |

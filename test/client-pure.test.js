@@ -1229,6 +1229,22 @@ test('every branch-menu operation reaches a real Api method', async () => {
     assert.equal(await core.runNetOp('/repo', 'pull'), '已拉取 origin/main（2 个新提交）')
     core.Api.pull = async () => ({ ok: true, updated: false, upstream: 'origin/main' })
     assert.equal(await core.runNetOp('/repo', 'pull'), 'origin/main 已是最新')
+
+    // A named push target says where the commit landed and what happened to
+    // the tracking relation; the branch's own upstream cannot stand in for it.
+    core.Api.push = async () => ({
+      ok: true, branch: 'main', target: 'hotfix', remote: 'origin', upstream: 'origin/main', created: false, upToDate: false, ahead: 1,
+    })
+    assert.equal(
+      await core.runNetOp('/repo', 'push', undefined, { target: 'hotfix' }),
+      '已推送 main → origin/hotfix（1 个新提交）；上游仍是 origin/main（仅这一次）',
+    )
+    core.Api.push = async () => ({
+      ok: true, branch: 'main', target: 'hotfix', remote: 'origin', upstream: 'origin/hotfix', created: true, setUpstream: true,
+    })
+    assert.equal(await core.runNetOp('/repo', 'push'), '已在远端发布新分支 main → origin/hotfix；上游已设为 origin/hotfix')
+    core.Api.push = async () => ({ ok: true, branch: 'main', target: 'hotfix', remote: 'origin', upToDate: true })
+    assert.equal(await core.runNetOp('/repo', 'push'), 'origin/hotfix 上没有需要推送的提交')
   } finally {
     Object.assign(core.Api, originals)
   }

@@ -264,7 +264,15 @@ window.__ModuleLoader__.load({
       checkout: (dir, body) => api(dir, '/checkout', { method: 'POST', body }),
       draftMessage: (dir, body) => api(dir, '/commit-message', { method: 'POST', body }),
       pull: (dir, options = {}) => api(dir, '/pull', { method: 'POST', body: { rebase: options.rebase === true } }),
-      push: (dir, options = {}) => api(dir, '/push', { method: 'POST', body: { force: options.force === true, remote: options.remote } }),
+      push: (dir, options = {}) => api(dir, '/push', {
+        method: 'POST',
+        body: {
+          force: options.force === true,
+          remote: options.remote,
+          target: options.target,
+          setUpstream: options.setUpstream === true,
+        },
+      }),
       fetchAll: (dir) => api(dir, '/fetch', { method: 'POST', body: {} }),
       remotes: (dir) => api(dir, '/remotes'),
       addRemote: (dir, name, url) => api(dir, '/remote-add', { method: 'POST', body: { name, url } }),
@@ -962,6 +970,20 @@ window.__ModuleLoader__.load({
         }
         case 'push': {
           const result = await Api.push(dir, options)
+          // The dialog always names its target: say where it went, and what
+          // happened to the tracking relation, instead of letting the branch's
+          // usual upstream stand in for a different destination.
+          if (result?.target) {
+            const targetRef = result.remote ? `${result.remote}/${result.target}` : result.target
+            if (result.upToDate) return tt('toast.pushToUpToDate', { target: targetRef })
+            const main = tt(result?.created ? 'toast.pushedNewTo' : 'toast.pushedTo', { branch: result.branch, target: targetRef })
+            const note = result?.setUpstream
+              ? tt('toast.pushUpstreamSet', { upstream: result.upstream || targetRef })
+              : result?.upstream
+                ? tt('toast.pushUpstreamKept', { upstream: result.upstream })
+                : tt('toast.pushUpstreamNone')
+            return main + commitNote(result?.ahead) + tt('toast.pushNoteSep') + note
+          }
           if (result?.upToDate) return tt('toast.pushUpToDate', { branch: result.branch })
           const message = tt(result?.created ? 'toast.pushedNew' : 'toast.pushed', { branch: result.branch, upstream: result.upstream })
           return message + commitNote(result?.ahead)

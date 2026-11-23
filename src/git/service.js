@@ -1383,25 +1383,29 @@ export class GitService {
   async push(input = {}) {
     const root = await this.resolveDir(input.dir)
     const remote = input.remote ? this.remoteNameToken(input.remote) : ''
+    const target = input.target ? this.branchToken(input.target) : ''
     return this.withWriteLock(async () => {
+      const head = await runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { allowFailure: true })
+      const branch = head.code === 0 ? head.stdout.trim() : ''
+      // An explicit target: publish this branch under another name on the
+      // remote — once, unless `setUpstream` also points the branch at it.
+      if (target) return this.pushTo(root, branch, target, remote, input)
       // No upstream yet — or one that carries a different branch name. The
       // latter happens when a branch is created from another remote branch
       // under a new name, or renamed after it was pushed; a bare `git push`
       // refuses to guess between that upstream and the same-name branch
       // (push.default=simple), so publish this branch under its own name.
-      const head = await runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { allowFailure: true })
-      const branch = head.code === 0 ? head.stdout.trim() : ''
       const merge = branch === '' ? null : await runGit(root, ['config', '--get', `branch.${branch}.merge`], { allowFailure: true })
       const tracksSameName = merge !== null && merge.code === 0 && merge.stdout.trim() === `refs/heads/${branch}`
       let args
-      let target = ''
+      let pushTarget = ''
       if (tracksSameName) {
         args = ['push']
       } else {
         // `origin` is a convention, not a fact: push to the remote the user
         // picked, else the one this branch was tracking, else the only remote.
-        target = remote || (await this.trackedRemote(root, branch)) || (await this.defaultRemote(root))
-        args = ['push', '-u', target, 'HEAD']
+        pushTarget = remote || (await this.trackedRemote(root, branch)) || (await this.defaultRemote(root))
+        args = ['push', '-u', pushTarget, 'HEAD']
       }
       // Force uses --force-with-lease: it refuses to overwrite a remote commit
       // we have not seen, unlike plain --force.
@@ -1411,7 +1415,7 @@ export class GitService {
       // the branch is new on the remote, and an upstream already at HEAD means
       // the push had nothing to send. A stale tracking ref cannot make either
       // answer wrong — if the remote had moved, git would reject the push.
-      const pushRemote = tracksSameName ? await this.trackedRemote(root, branch) : target
+      const pushRemote = tracksSameName ? await this.trackedRemote(root, branch) : pushTarget
       const isNew = pushRemote !== '' && branch !== ''
         ? (await runGit(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${pushRemote}/${branch}`], { allowFailure: true })).code !== 0
         : false
@@ -1424,6 +1428,40 @@ export class GitService {
       const result = await this.network(root, args)
       return { ...result, branch, upstream: await this.upstreamName(root), created: isNew, upToDate, ahead }
     })
+  }
+
+  /**
+   * Push HEAD to `target` on the remote (a temporary target unless
+   * `setUpstream`), and answer the same facts the plain push does, counted
+   * against that target's remote-tracking ref instead of @{upstream}.
+   */
+  async pushTo(root, branch, target, remote, input) {
+    const pushRemote = remote || (await this.trackedRemote(root, branch)) || (await this.defaultRemote(root))
+    const args = ['push']
+    if (input.setUpstream) args.push('--set-upstream')
+    args.push(pushRemote, `HEAD:refs/heads/${target}`)
+    // Force uses --force-with-lease: it refuses to overwrite a remote commit
+    // we have not seen, unlike plain --force.
+    if (input.force) args.push('--force-with-lease')
+    const tracked = await runGit(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${pushRemote}/${target}`], { allowFailure: true })
+    const headSha = await runGit(root, ['rev-parse', '--verify', '--quiet', 'HEAD'], { allowFailure: true })
+    const trackedSha = tracked.code === 0 ? tracked.stdout.trim() : ''
+    const sha = headSha.code === 0 ? headSha.stdout.trim() : ''
+    const isNew = trackedSha === ''
+    const upToDate = trackedSha !== '' && trackedSha === sha
+    const ahead = await this.incomingCommits(root, trackedSha, sha)
+    const result = await this.network(root, args)
+    return {
+      ...result,
+      branch,
+      target,
+      remote: pushRemote,
+      setUpstream: input.setUpstream === true,
+      upstream: await this.upstreamName(root),
+      created: isNew,
+      upToDate,
+      ahead,
+    }
   }
 
   /**

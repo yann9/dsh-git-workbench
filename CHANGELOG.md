@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- Push opens one dialog, the IDE's "Push…" rather than a second menu entry: the
+  remote branch to publish to (typed, defaulting to the upstream or the branch
+  name), a remote picker when there is more than one, "set as upstream" — off by
+  default once the branch already tracks something, so a one-off destination
+  leaves the tracking alone — and a force choice built on `--force-with-lease`.
+  The toast names the target and says whether the upstream moved; pushing tags
+  and the commit bar's "commit and push" keep their own paths.
+
+### Changed
+
+- The branch popover is narrower and lists its operations one per row, the way
+  an IDE does, instead of packing five icon cells into a strip; fetch sits
+  beside the search field with its own turning-arrow glyph, so it no longer
+  looks like pull. The branch actions carry their real shortcuts, printed at
+  the rows' trailing edge: pull `Ctrl/Cmd+Alt+U`, fetch `Ctrl/Cmd+Alt+F`, new
+  branch `Ctrl/Cmd+Alt+C`, push `Ctrl/Cmd+Shift+K`. Each fires with the menu
+  closed, refuses to stack a dialog, and stays quiet while typing in a field
+  (`Ctrl+Alt` is AltGr on several layouts); the IDE's own keys are unavailable
+  here because the host and the browser already own them.
+
 ### Fixed
 
 - A repository change no longer throws an open working-tree diff back to the

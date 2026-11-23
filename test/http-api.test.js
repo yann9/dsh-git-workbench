@@ -340,6 +340,70 @@ test('network operations answer with what changed, not git\'s banner', async () 
   }
 })
 
+test('a push can publish to another branch and leave the upstream alone', async () => {
+  const dir = await makeRepo()
+  const bare = await makeTempDir('dsh-git-remote-')
+  gitSync(bare, ['init', '-q', '--bare'])
+  const { server, base } = await startServer(dir)
+  const post = async (route, body = {}) => {
+    const response = await fetch(`${base}/api${route}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dir, ...body }),
+    })
+    return { status: response.status, payload: await response.json() }
+  }
+  try {
+    gitSync(dir, ['remote', 'add', 'origin', bare])
+    const first = await post('/push')
+    assert.equal(first.status, 200, JSON.stringify(first.payload))
+    assert.equal(first.payload.upstream, 'origin/main')
+    const head = gitSync(dir, ['rev-parse', 'HEAD']).trim()
+
+    // A named target is a temporary destination: the branch is published
+    // under that name and still tracks origin/main.
+    const temp = await post('/push', { target: 'release/demo' })
+    assert.equal(temp.status, 200, JSON.stringify(temp.payload))
+    assert.equal(temp.payload.target, 'release/demo')
+    assert.equal(temp.payload.remote, 'origin')
+    assert.equal(temp.payload.created, true)
+    assert.equal(temp.payload.upstream, 'origin/main')
+    assert.equal(gitSync(bare, ['rev-parse', 'refs/heads/release/demo']).trim(), head)
+    assert.equal(gitSync(dir, ['config', '--get', 'branch.main.merge']).trim(), 'refs/heads/main')
+
+    // The same target again is "up to date" against that target, not against
+    // the branch's own upstream.
+    const again = await post('/push', { target: 'release/demo' })
+    assert.equal(again.status, 200, JSON.stringify(again.payload))
+    assert.equal(again.payload.upToDate, true)
+    assert.equal(again.payload.created, false)
+
+    // Ticking "set upstream" writes the tracking relation to the new name.
+    const retarget = await post('/push', { target: 'release/demo', setUpstream: true })
+    assert.equal(retarget.status, 200, JSON.stringify(retarget.payload))
+    assert.equal(retarget.payload.upstream, 'origin/release/demo')
+    assert.equal(gitSync(dir, ['config', '--get', 'branch.main.merge']).trim(), 'refs/heads/release/demo')
+
+    // Force is --force-with-lease: a rewritten commit needs it, and the lease
+    // is taken against the target's remote-tracking ref.
+    gitSync(dir, ['commit', '-q', '--amend', '-m', 'rewritten'])
+    const rejected = await post('/push', { target: 'release/demo' })
+    assert.equal(rejected.status, 500)
+    const forced = await post('/push', { target: 'release/demo', force: true })
+    assert.equal(forced.status, 200, JSON.stringify(forced.payload))
+    assert.equal(gitSync(bare, ['rev-parse', 'refs/heads/release/demo']).trim(), gitSync(dir, ['rev-parse', 'HEAD']).trim())
+
+    // The target reaches git as an argv entry, so an option cannot ride in.
+    const injection = await post('/push', { target: '--force' })
+    assert.equal(injection.status, 500)
+    assert.match(injection.payload.error, /invalid branch name/i)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    await rm(dir, { recursive: true, force: true })
+    await rm(bare, { recursive: true, force: true })
+  }
+})
+
 test('immutable endpoints answer 304 while working-tree reads stay fresh', async (t) => {
   const dir = await makeRepo()
   const { server, base } = await startServer(dir)

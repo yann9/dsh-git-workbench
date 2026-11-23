@@ -10,7 +10,7 @@ window.__ModuleLoader__.load({
     const { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } = React
     const kit = require('@yann9/dsh-git-workbench/client.core.js')
     const { Api, COMMIT_KIND, LOG_KIND, baseName, compareStore, config, openDiff, openTab, runNetOp, switchBranch, useRepoChanges, useSessionDirectory } = kit
-    const { Chip, GitIcon, GitIcons, Menu, MenuRow, copyText, iconMarkup, openContextMenu, openNamePrompt, reportError, showConfirm, showRemotesDialog, showStashDialog, showToast, withIdentity } = require('@yann9/dsh-git-workbench/client.ui.js')
+    const { Chip, GitIcon, GitIcons, Menu, MenuRow, copyText, iconMarkup, openContextMenu, openNamePrompt, reportError, showConfirm, showPushDialog, showRemotesDialog, showStashDialog, showToast, withIdentity } = require('@yann9/dsh-git-workbench/client.ui.js')
     const { tt } = require('@yann9/dsh-git-workbench/client.i18n.js')
 
     /**
@@ -66,7 +66,6 @@ window.__ModuleLoader__.load({
       pull: 'net.pullBusy',
       push: 'net.pushBusy',
       pushTag: 'net.pushBusy',
-      fetch: 'net.fetchBusy',
       merge: 'net.mergeBusy',
       rebaseOnto: 'net.rebaseBusy',
       switchTo: 'net.switchBusy',
@@ -74,8 +73,18 @@ window.__ModuleLoader__.load({
     function busyLabel(kind) {
       return tt(NET_BUSY_LABEL[kind] ?? 'net.busy')
     }
+    // Only shortcuts that are actually bound earn a hint on their row. The
+    // IDE's own keys are unavailable here: primary+K/N/O/T belong to the host
+    // and the browser, so the branch actions take the free Ctrl+Alt family.
+    const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
+    const SHORTCUT = {
+      pull: IS_MAC ? '⌘⌥U' : 'Ctrl+Alt+U',
+      fetch: IS_MAC ? '⌘⌥F' : 'Ctrl+Alt+F',
+      newBranch: IS_MAC ? '⌘⌥C' : 'Ctrl+Alt+C',
+      push: IS_MAC ? '⇧⌘K' : 'Ctrl+Shift+K',
+    }
 
-    function GitOperationsMenu({ dir, button, onDone }) {
+    function GitOperationsMenu({ dir, button, onDone, anchorRef }) {
       const [state, setState] = useState({ status: null, branches: { local: [], remote: [] }, stashes: [], remotes: [] })
       const [busy, setBusy] = useState(null)
       // Two git commands at once on the same repo race over index.lock. Every
@@ -151,45 +160,83 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const forcePush = async () => {
-        if (!(await showConfirm(tt('git.forceConfirm'), { ok: tt('confirm.forcePush'), danger: true }))) return
-        await run('push', undefined, { force: true })
-      }
-
       /**
-       * A first push has to name its target: `origin` is a convention, not a
-       * fact. With an upstream, git already knows where to go; with one
-       * remote, use it; with several, let the user pick.
+       * The push entry: one dialog that names the remote branch to publish to,
+       * whether this push replaces the relationship, and whether it runs
+       * forced — the IDE's "Push…", not a second row of buttons.
        */
-      const pushWithTarget = async (event, options = {}) => {
-        const remotes = state.remotes ?? []
-        if (state.status?.upstream) {
-          await run('push', undefined, options)
+      const openPushDialog = async () => {
+        if (readOnly) {
+          blocked()
           return
         }
+        if (busyBlocked()) return
+        const remotes = state.remotes ?? []
         if (remotes.length === 0) {
           showToast(tt('remote.none'), true)
           return
         }
-        if (remotes.length === 1) {
-          await run('push', undefined, { ...options, remote: remotes[0].name })
-          return
-        }
-        openContextMenu(
-          event?.clientX ?? 0,
-          event?.clientY ?? 0,
-          remotes.map((remote) => ({
-            iconSvg: iconMarkup('remote', 13),
-            label: remote.name,
-            hint: remote.url,
-            title: remote.url,
-            onClick: () => void run('push', undefined, { ...options, remote: remote.name }),
-          })),
-          // Wide enough for the urls: two remotes that differ only in their
-          // path must be tellable apart here.
-          { width: 440 },
-        )
+        const picked = await showPushDialog({
+          branch: state.status?.branch ?? '',
+          upstream: state.status?.upstream ?? '',
+          remotes,
+        })
+        if (!picked) return
+        await run('push', undefined, picked)
       }
+
+      /** New Branch / New Tag: the rows and the shortcuts share one flow. */
+      const promptNewBranch = (point) =>
+        openNamePrompt(point.left, point.bottom + 4, tt('menu.newBranch'), tt('ctx.branchName'), (name) =>
+          void checkout(name, true), sessionBranchName(baseName(dir ?? '')), tt('prompt.create'))
+      const promptNewTag = (point) =>
+        openNamePrompt(point.left, point.bottom + 4, tt('menu.newTag'), tt('ctx.tagName'), (name) => void run('createTag', name, { ref: 'HEAD' }), 'v0.3.0', tt('prompt.create'))
+
+      // The shortcuts printed on the rows have to work with the menu closed.
+      // One document listener per visible header; the trigger's own width
+      // keeps a hidden copy quiet, an open dialog owns the key, and typing in
+      // a real field is left alone (Ctrl+Alt is AltGr on several layouts).
+      const shortcutsRef = useRef(null)
+      shortcutsRef.current = (event) => {
+        const editable = event.target?.closest?.('input, textarea, [contenteditable="true"]')
+        if (editable && !editable.closest('.gwb-menu')) return false
+        if (document.querySelector('.gwb-confirm-backdrop')) return false
+        const node = anchorRef?.current
+        if (!node || node.getBoundingClientRect().width === 0) return false
+        const primary = event.ctrlKey || event.metaKey
+        if (!primary) return false
+        const key = String(event.key).toLowerCase()
+        const point = () => {
+          const rect = node.getBoundingClientRect()
+          return { left: rect.left, bottom: rect.bottom }
+        }
+        if (event.shiftKey && !event.altKey && key === 'k') {
+          openPushDialog()
+          return true
+        }
+        if (event.altKey && !event.shiftKey && key === 'u') {
+          void run('pull', undefined, { rebase: false })
+          return true
+        }
+        if (event.altKey && !event.shiftKey && key === 'f') {
+          void run('fetch')
+          return true
+        }
+        if (event.altKey && !event.shiftKey && key === 'c') {
+          promptNewBranch(point())
+          return true
+        }
+        return false
+      }
+      useEffect(() => {
+        if (!anchorRef) return undefined
+        const onKey = (event) => {
+          if (event.repeat || event.defaultPrevented) return
+          if (shortcutsRef.current?.(event)) event.preventDefault()
+        }
+        document.addEventListener('keydown', onKey)
+        return () => document.removeEventListener('keydown', onKey)
+      }, [anchorRef])
 
       /** The IDE's "Manage Remotes": add, edit and drop remote repositories. */
       const openRemotesManager = () => {
@@ -733,6 +780,7 @@ window.__ModuleLoader__.load({
           icon: GitIcons.pull,
           kind: 'pull',
           label: tt('git.pull'),
+          hint: SHORTCUT.pull,
           run: () => run('pull', undefined, { rebase: false }),
           variants: [
             { iconSvg: iconMarkup('pull', 13), label: tt('git.pullMerge'), run: () => run('pull', undefined, { rebase: false }) },
@@ -742,14 +790,13 @@ window.__ModuleLoader__.load({
         {
           icon: GitIcons.push,
           kind: 'push',
-          label: tt('git.push'),
-          run: (event) => void pushWithTarget(event),
-          variants: [
-            { iconSvg: iconMarkup('push', 13), label: tt('git.push'), run: (event) => void pushWithTarget(event) },
-            { iconSvg: iconMarkup('push', 13), label: tt('git.pushForce'), danger: true, run: () => void forcePush() },
-          ],
+          label: tt('git.pushWith'),
+          hint: SHORTCUT.push,
+          // Following the IDE: one Push action, and one dialog that names the
+          // target, the remote and the force/upstream choices. No second
+          // entry, no caret — the common case is the dialog's default + Enter.
+          run: () => void openPushDialog(),
         },
-        { icon: GitIcons.fetch, kind: 'fetch', label: tt('git.fetch'), run: () => run('fetch') },
       ].filter((action) => !readOnly && match(action.label))
       const branches = local.filter((branch) => match(branch.name))
       const remoteRows = (state.branches.remote ?? []).filter((branch) => branch.name.includes('/') && match(branch.name))
@@ -763,6 +810,8 @@ window.__ModuleLoader__.load({
           align: 'down',
           button: typeof button === 'function' ? button(branchLabel, status, busy) : button,
           onOpen: !status ? () => void load() : undefined,
+          // The IDE's width: short verbs, long branch names ellipsize, and the
+          // secondary menus size themselves independently.
           width: 360,
         },
         // Search and repo operations stay pinned while the branch list scrolls.
@@ -784,6 +833,20 @@ window.__ModuleLoader__.load({
                 if (event.key === 'Escape') event.stopPropagation()
               },
             }),
+            // Fetch sits beside the search field the way the IDE keeps its
+            // synchronize button: a refresh glyph, not another verb in the list.
+            !readOnly
+              ? h(
+                  'button',
+                  {
+                    className: `gwb-menu-fetch${busy === 'fetch' ? ' busy' : ''}`,
+                    title: `${tt('git.fetch')} (${SHORTCUT.fetch})`,
+                    'aria-label': tt('git.fetch'),
+                    onClick: () => void run('fetch'),
+                  },
+                  h(GitIcons.refresh, { size: 15 }),
+                )
+              : null,
           ),
           h(
             'div',
@@ -792,53 +855,48 @@ window.__ModuleLoader__.load({
             actions.map((action) =>
               h(
                 'div',
-                { key: action.label, className: `gwb-action-cell${busy === action.kind ? ' busy' : ''}` },
+                { key: action.label, className: `gwb-action-row${busy === action.kind ? ' busy' : ''}` },
                 h(
                   MenuRow,
                   { onClick: action.run },
-                  h('span', { className: 'gwb-rowicon' }, h(action.icon, { size: 16 })),
-                  h(
-                    'span',
-                    { className: 'gwb-action-line' },
-                    h('span', { className: 'gwb-action-label' }, action.label),
-                    // Label and caret are centred as one unit under the icon:
-                    // the caret used to be absolutely positioned past the
-                    // label, outside the cell, where overflow clipped it.
-                    action.variants
-                      ? h(
-                          'button',
-                          {
-                            className: 'gwb-action-caret',
-                            title: tt('menu.more'),
-                            'aria-label': tt('menu.more'),
-                            'aria-haspopup': 'menu',
-                            onClick: (event) => {
-                              event.stopPropagation()
-                              const cell = event.currentTarget.closest('.gwb-action-cell') ?? event.currentTarget
-                              const rect = cell.getBoundingClientRect()
-                              openContextMenu(
-                                rect.left,
-                                rect.bottom + 2,
-                                action.variants.map((variant) => ({
-                                  iconSvg: variant.iconSvg,
-                                  label: variant.label,
-                                  onClick: variant.run,
-                                })),
-                                { fit: true },
-                              )
-                            },
+                  h('span', { className: 'gwb-rowicon' }, h(action.icon, { size: 15 })),
+                  h('span', { className: 'gwb-action-label' }, busy === action.kind ? busyLabel(action.kind) : action.label),
+                  // The variants caret belongs to the verb; the shortcut stays
+                  // at the far edge of the row, where the IDE prints it.
+                  action.variants
+                    ? h(
+                        'button',
+                        {
+                          className: 'gwb-action-caret',
+                          title: tt('menu.more'),
+                          'aria-label': tt('menu.more'),
+                          'aria-haspopup': 'menu',
+                          onClick: (event) => {
+                            event.stopPropagation()
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            openContextMenu(
+                              rect.left,
+                              rect.bottom + 2,
+                              action.variants.map((variant) => ({
+                                iconSvg: variant.iconSvg,
+                                label: variant.label,
+                                onClick: variant.run,
+                              })),
+                              { fit: true },
+                            )
                           },
-                          '▾',
-                        )
-                      : null,
-                  ),
+                        },
+                        '▾',
+                      )
+                    : null,
+                  action.hint ? h('span', { className: 'gwb-action-tail' }, h('span', { className: 'gwb-action-hint' }, action.hint)) : null,
                 ),
               ),
             ),
             !readOnly && match(newBranchLabel)
               ? h(
                   'div',
-                  { key: 'new', className: 'gwb-action-cell' },
+                  { key: 'new', className: 'gwb-action-row' },
                   h(
                     MenuRow,
                     {
@@ -846,29 +904,25 @@ window.__ModuleLoader__.load({
                         // Keep the popup open: the new branch has to appear in it.
                         event.stopPropagation()
                         // 弹出输入框而不是内联表单：与「为此会话新建分支」一致。
-                        const rect = event.currentTarget.getBoundingClientRect()
-                        openNamePrompt(rect.left, rect.bottom + 4, tt('menu.newBranch'), tt('ctx.branchName'), (name) =>
-                          void checkout(name, true),
-                          sessionBranchName(baseName(dir ?? '')), tt('prompt.create'),
-                        )
+                        promptNewBranch(event.currentTarget.getBoundingClientRect())
                       },
                     },
                     h('span', { className: 'gwb-rowicon' }, h(GitIcons.plus)),
                     h('span', { className: 'gwb-action-label' }, tt('menu.newBranch')),
+                    h('span', { className: 'gwb-action-tail' }, h('span', { className: 'gwb-action-hint' }, SHORTCUT.newBranch)),
                   ),
                 )
               : null,
             !readOnly && match(tt('menu.newTag'))
               ? h(
                   'div',
-                  { key: 'newtag', className: 'gwb-action-cell' },
+                  { key: 'newtag', className: 'gwb-action-row' },
                   h(
                     MenuRow,
                     {
                       onClick: (event) => {
                         event.stopPropagation()
-                        const rect = event.currentTarget.getBoundingClientRect()
-                        openNamePrompt(rect.left, rect.bottom + 4, tt('menu.newTag'), tt('ctx.tagName'), (name) => void run('createTag', name, { ref: 'HEAD' }), 'v0.3.0', tt('prompt.create'))
+                        promptNewTag(event.currentTarget.getBoundingClientRect())
                       },
                     },
                     h('span', { className: 'gwb-rowicon' }, h(GitIcons.tag)),
@@ -1070,13 +1124,16 @@ window.__ModuleLoader__.load({
       // A brand-new session has no cwd yet: useSessionDirectory falls back to
       // its owning workspace, so the chip works before the first message.
       const dir = useSessionDirectory(props)
+      const chipRef = useRef(null)
       if (!dir) return null
       return h(GitOperationsMenu, {
         dir,
+        anchorRef: chipRef,
         button: (branchLabel, _status, busy) =>
           h(
             'button',
             {
+              ref: chipRef,
               className: 'gwb-chipbtn',
               'aria-busy': busy ? '1' : undefined,
               title: `${baseName(dir)} · ${busy ? busyLabel(busy) : tt('menu.branches')}`,
@@ -1131,6 +1188,7 @@ window.__ModuleLoader__.load({
      */
     function GitHeroBranch(props) {
       const [state, setState] = useState(null)
+      const chipRef = useRef(null)
       const dir = useSessionDirectory(props)
 
       const load = useCallback(async () => {
@@ -1157,10 +1215,12 @@ window.__ModuleLoader__.load({
       return h(GitOperationsMenu, {
         dir,
         align: 'down',
+        anchorRef: chipRef,
         button: (branchLabel, _status, busy) =>
           h(
             'button',
             {
+              ref: chipRef,
               className: 'gwb-hero-chip',
               'aria-busy': busy ? '1' : undefined,
               title: `${busy ? `${busyLabel(busy)} · ` : ''}${tt('menu.branches')} · ${state.detached ? label : branchLabel}`,
