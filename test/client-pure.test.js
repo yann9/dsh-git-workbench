@@ -310,20 +310,39 @@ test('computeGraph keeps children above parents in one lane', async () => {
 test('computeGraph joins a merged branch back into the lane it came from', async () => {
   const { panes } = await loadClient()
   // The usual shape: a feature branch (b) forked from c and was merged by m.
-  // The feature lane reaches c, which already has a lane on the main line; the
-  // old renderer wrote c into both lanes and left one line running forever.
+  // The mainline (a) keeps its own lane; the feature lane bends in at c
+  // instead of dragging the trunk over to its column.
   const rows = panes.computeGraph([
     { hash: 'm', parents: ['a', 'b'] },
     { hash: 'b', parents: ['c'] },
     { hash: 'a', parents: ['c'] },
     { hash: 'c', parents: [] },
   ])
-  for (const row of rows) {
-    const live = row.after.filter(Boolean)
-    assert.equal(new Set(live).size, live.length, 'a commit never occupies two lanes')
-  }
-  assert.ok(rows[2].edges.some((edge) => edge.from === 0 && edge.to === 1), 'a joins c’s existing lane')
+  assert.equal(rows[2].lane, 0, 'the mainline keeps lane 0')
+  assert.ok(rows[3].up.some((segment) => segment.from === 1 && segment.to === 0), 'the feature line joins c at the main line')
   assert.deepEqual(Array.from(rows[3].after), [], 'the last commit ends every lane')
+})
+
+test('a branch never pulls the trunk into its own lane at a shared ancestor', async () => {
+  const { panes } = await loadClient()
+  // The history a merge-heavy repository shows after its branches are gone:
+  // a newer side tip (s) reaches the shared ancestor (a) before the mainline
+  // does, so `a` is already waiting in lane 1 when f's first-parent chain
+  // arrives. The trunk must keep its own lane (and colour) and the side line
+  // must bend in — otherwise every merge drags the mainline one column to the
+  // right and repaints it with the branch's colour.
+  const rows = panes.computeGraph([
+    { hash: 't', parents: ['m'] },
+    { hash: 's', parents: ['a'] },
+    { hash: 'm', parents: ['f', 'b'] },
+    { hash: 'f', parents: ['a'] },
+    { hash: 'b', parents: ['a'] },
+    { hash: 'a', parents: [] },
+  ])
+  assert.equal(rows[3].lane, 0, 'the mainline stays in lane 0')
+  assert.equal(rows[5].lane, 0, 'the shared ancestor is drawn on the main line')
+  assert.ok(rows[5].up.some((segment) => segment.from === 1 && segment.to === 0), 'the side line bends into the trunk')
+  assert.deepEqual(Array.from(rows[5].after), [], 'both lanes end at the shared ancestor')
 })
 
 test('the graph draws git’s walk, not a second sort by author date', async () => {

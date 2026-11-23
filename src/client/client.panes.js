@@ -707,11 +707,16 @@ window.__ModuleLoader__.load({
         parents.forEach((parent, index) => {
           if (placed.has(parent)) return
           let target = lanes.indexOf(parent)
-          // The first parent continues in this commit's own lane when it is
-          // still free; every other parent takes another lane. A parent that
-          // already has a lane keeps it, so two lanes can never point at the
-          // same commit.
-          if (target === -1) target = claim(parent, index === 0 ? lane : -1, index === 0 ? -1 : lane, index === 0 ? color : undefined)
+          // The first parent continues in this commit's own lane. When the
+          // parent is still free that is a plain claim; when a branch further
+          // up already put it in a lane to the right, the trunk takes its own
+          // lane as well and that older line bends in at the parent's row —
+          // otherwise the first branch to reach a shared ancestor pulls the
+          // mainline (and its colour) into its column for good, which is the
+          // sideways drift a merge-heavy history shows.
+          const inherits = index === 0 && (target === -1 || target > lane)
+          if (inherits) target = claim(parent, lane, -1, color)
+          else if (target === -1) target = claim(parent, -1, lane)
           placed.set(parent, { lane: target, color: laneColors[target] ?? color })
         })
         const after = lanes.slice()

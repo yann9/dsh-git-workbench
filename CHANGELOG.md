@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
   The pane says the diff is out of date in the UI language and re-reads it, so
   the next click works; discarding in an untracked file explains why there is
   nothing to discard.
+- The history graph keeps the main line in its own column. A side branch that
+  reached a shared ancestor before the trunk did used to drag the trunk into
+  its lane — and repaint it with the branch's colour — from that commit down,
+  which is what made a merge-heavy history look sideways after its branches
+  were deleted; the branch line now bends into the trunk at the ancestor.
 
 ## 0.2.0 — 2026-11-18
 
