@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.3.1 — 2026-11-23
+
+### Fixed
+
+- The commit graph starts at each branch tip instead of hanging a stub above
+  it, and its column is sized from the lanes actually drawn — a three-lane
+  graph used to be clipped by a column that shrank like a text column. The
+  documentation screenshots are re-shot with both corrections.
+
 ## 0.3.0 — 2026-11-23
 
 ### Added

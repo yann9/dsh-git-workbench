@@ -303,6 +303,9 @@ test('computeGraph keeps children above parents in one lane', async () => {
   ])
   assert.equal(rows.length, 3)
   assert.ok(rows.every((row) => row.lane === 0))
+  // Nothing is above the newest commit, so its row draws no incoming lane —
+  // a top half there left a stub hanging over the first row.
+  assert.deepEqual(Array.from(rows[0].up), [])
   assert.equal(rows[0].after[0], 'b')
   assert.equal(rows[2].after.length, 0)
 })
@@ -321,6 +324,22 @@ test('computeGraph joins a merged branch back into the lane it came from', async
   assert.equal(rows[2].lane, 0, 'the mainline keeps lane 0')
   assert.ok(rows[3].up.some((segment) => segment.from === 1 && segment.to === 0), 'the feature line joins c at the main line')
   assert.deepEqual(Array.from(rows[3].after), [], 'the last commit ends every lane')
+})
+
+test('a branch tip starts at its node, with no stub above it', async () => {
+  const { panes } = await loadClient()
+  // Two tips: the mainline (m0 → m1) and a side branch (s0). s0's lane is
+  // claimed on its own row, so nothing exists above it — the row used to draw
+  // a half-line from the top edge down to the node, a stub hanging in the air.
+  const rows = panes.computeGraph([
+    { hash: 'm0', parents: ['m1'] },
+    { hash: 's0', parents: ['a'] },
+    { hash: 'm1', parents: ['a'] },
+    { hash: 'a', parents: [] },
+  ])
+  assert.ok(rows[1].up.some((segment) => segment.from === 0 && segment.to === 0), 'the mainline passes through the row')
+  assert.ok(!rows[1].up.some((segment) => segment.from === 1 && segment.to === 1), 'the tip has no line above it')
+  assert.ok(rows[3].up.some((segment) => segment.from === 1 && segment.to === 0), 'the side line bends in at the shared ancestor')
 })
 
 test('a branch never pulls the trunk into its own lane at a shared ancestor', async () => {

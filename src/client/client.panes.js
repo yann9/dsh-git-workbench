@@ -673,21 +673,29 @@ window.__ModuleLoader__.load({
       }
       for (const entry of entries) {
         let lane = lanes.indexOf(entry.hash)
+        // Whether this row is where the lane starts (a branch tip, or the very
+        // first row). Such a lane has nothing above it, so its half-row line
+        // would hang over the commit as a stub.
+        let startsHere = false
         let color
         if (lane === -1) {
           lane = claim(entry.hash, -1)
           color = laneColors[lane]
+          startsHere = true
         } else {
           color = laneColors[lane] ?? nextColor++
           laneColors[lane] = color
         }
         const before = lanes.slice()
         const beforeColors = laneColors.slice()
-        // The upper half of the row: every live lane comes in at the top edge
-        // and ends either at this commit's node or straight down its own lane.
+        // The upper half of the row: every lane that was already live above
+        // comes in at the top edge and ends either at this commit's node or
+        // straight down its own lane. A lane claimed on this row has no top
+        // edge to come from.
         const up = []
         for (let index = 0; index < before.length; index += 1) {
           if (!before[index]) continue
+          if (startsHere && index === lane) continue
           up.push({ from: index, to: before[index] === entry.hash ? lane : index, color: beforeColors[index] ?? 0 })
         }
         const starts = []
@@ -3104,6 +3112,29 @@ window.__ModuleLoader__.load({
       const graphOn = useMemo(() => logGraphVisible(sort), [sort])
 
       /**
+       * The width the drawn graph actually needs: the widest lane set among the
+       * rows on screen. The column used to shrink like a text column, so a
+       * three-lane graph was clipped by the column edge.
+       */
+      const graphNeed = useMemo(() => {
+        if (!graphOn) return 0
+        const lists = pair
+          ? [(compare?.leftOnly ?? []).filter(matches), (compare?.rightOnly ?? []).filter(matches)]
+          : groupBy === 'none'
+            ? [sorted]
+            : groupLogEntries(sorted, groupBy)
+                .filter((group) => !collapsedGroups.has(group.key))
+                .map((group) => group.entries)
+        let lanes = 0
+        for (const list of lists) {
+          if (!list || list.length === 0) continue
+          for (const row of computeGraph(list)) lanes = Math.max(lanes, row.width)
+        }
+        // GraphSvg's own step: 14px per lane, never narrower than 20px.
+        return lanes > 0 ? Math.max(20, lanes * 14) : 0
+      }, [graphOn, pair, compare, groupBy, sorted, matches, collapsedGroups])
+
+      /**
        * Whether a column is on the table right now. The subject is always
        * there; the graph comes and goes with the history order; the narrow
        * layout drops the author, then the hash, and a column that is not on
@@ -3140,7 +3171,10 @@ window.__ModuleLoader__.load({
         const room = Math.max(0, avail - LOG_PAD - LOG_ROW_MORE - gaps)
         const columns = fixed.map((key) => {
           const [min, hardMax] = LOG_WIDTH_LIMITS[key]
-          return { key, min, want: Math.max(min, Math.min(hardMax, widths[key] ?? defaultWidth(key))) }
+          // The graph keeps the room its lanes need; the text columns are what
+          // give way when the pane is narrow.
+          const floor = key === 'graph' && graphNeed > 0 ? Math.max(min, Math.min(hardMax, graphNeed)) : min
+          return { key, min: floor, want: Math.max(floor, Math.min(hardMax, widths[key] ?? defaultWidth(key))) }
         })
         // The message has a width of its own only once the user gives it one;
         // until then it takes what the other columns leave.
@@ -3216,7 +3250,7 @@ window.__ModuleLoader__.load({
         if (widths.subject != null) style['--gwb-col-subject'] = `${plan.effective.subject}px`
         return style
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [widths, listWidth, leadKey, graphOn, columns.author, columns.date, columns.hash, narrow, tight])
+      }, [widths, listWidth, leadKey, graphOn, graphNeed, columns.author, columns.date, columns.hash, narrow, tight])
 
       // The columns decide how wide the subject is, so the rows re-measure
       // whenever a column comes or goes.
